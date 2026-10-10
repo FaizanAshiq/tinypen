@@ -47,6 +47,12 @@ impl Canvas {
         self.board.is_none() && self.screen.is_empty()
     }
 
+    /// Nothing a restart would lose: no marks, on the screen or a closed board, and nothing cleared
+    /// that undo could still bring back.
+    pub fn is_blank(&self) -> bool {
+        self.screen.is_empty() && self.sheet.is_empty() && self.cleared.is_none()
+    }
+
     pub fn add(&mut self, mark: Mark) {
         self.keep_cleared();
         self.change(|marks| marks.add(mark));
@@ -131,6 +137,26 @@ mod tests {
 
     fn mark(x: f32) -> Mark {
         Mark { kind: MarkKind::Stroke(vec![Point::new(x, 0.0), Point::new(x + 10.0, 10.0)]), color: "#FF3B30".into(), width: 4.0 }
+    }
+
+    /// An update restarts Tinypen only when that loses nothing: no marks, a closed board's
+    /// included, and nothing an Esc or Delete cleared that undo could still bring back.
+    #[test]
+    fn blank_only_with_nothing_a_restart_would_lose() {
+        let mut canvas = Canvas::default();
+        assert!(canvas.is_blank());
+        canvas.add(mark(1.0));
+        assert!(!canvas.is_blank());
+        canvas.erase();
+        assert!(canvas.is_empty() && !canvas.is_blank());
+        canvas.keep_cleared();
+        assert!(canvas.is_blank());
+        canvas.cycle_board();
+        canvas.add(mark(2.0));
+        canvas.close_board();
+        assert!(canvas.is_empty() && !canvas.is_blank());
+        canvas.reset();
+        assert!(canvas.is_blank());
     }
 
     #[test]

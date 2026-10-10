@@ -1,9 +1,12 @@
-# drive.ps1 -Exe <Tinypen.exe> [-Shots <folder>]: runs Tinypen on a real Windows desktop, as CI's
-# e2e job does, and drives it as a person would: the drawing hotkey, a stroke, Esc twice. Each step
-# is checked on Tinypen's own windows and on the pixels on screen, with a screenshot kept.
+# drive.ps1 -Exe <Tinypen.exe> [-Shots <folder>] [-Next <folder>]: runs Tinypen on a real Windows
+# desktop, as CI's e2e job does, and drives it as a person would: the drawing hotkey, a stroke, Esc
+# twice. Each step is checked on Tinypen's own windows and on the pixels on screen, with a
+# screenshot kept. With -Next, a build one version on (its Tinypen-win-x64.exe and version), a copy
+# then updates itself to it.
 param(
     [Parameter(Mandatory)] [string] $Exe,
-    [string] $Shots = 'shots'
+    [string] $Shots = 'shots',
+    [string] $Next
 )
 
 $ErrorActionPreference = 'Stop'
@@ -97,6 +100,13 @@ public static class Desk
 $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 $Ctrl, $Shift, $Esc = 0x11, 0x10, 0x1B
 $results = New-Object System.Collections.Generic.List[string]
+# Updates come from a folder here, never from GitHub, and the time of the last look starts afresh.
+$temporary = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [System.IO.Path]::GetTempPath() }
+$feed = Join-Path $temporary 'tinypen-feed'
+New-Item -ItemType Directory -Force $feed | Out-Null
+$env:TINYPEN_UPDATE_FEED = $feed
+$stamp = Join-Path $env:APPDATA 'Tinypen\last-update-check'
+Remove-Item $stamp -ErrorAction SilentlyContinue
 $script:failed = $false
 $script:shot = 0
 
@@ -200,6 +210,39 @@ Check 'a second Esc leaves drawing mode' { if (-not $left) { 'the toolbar or the
 Check 'Tinypen is still running' { if ($script:app.HasExited) { "exited with code $($script:app.ExitCode)" } }
 
 Stop-Process -Id $script:app.Id -Force -ErrorAction SilentlyContinue
+
+# 5. Updating: a copy in a folder it can write to, with a build one version on waiting, downloads
+# it, checks it against its SHA-256, and with nothing showing starts again as the new version.
+
+if ($Next) {
+    $version = (Get-Content (Join-Path $Next 'version')).Trim()
+    $newer = (Resolve-Path (Join-Path $Next 'Tinypen-win-x64.exe')).Path
+    $hash = (Get-FileHash $newer -Algorithm SHA256).Hash
+    $folder = Join-Path $temporary 'tinypen-installed'
+    New-Item -ItemType Directory -Force $folder | Out-Null
+    $installed = Join-Path $folder 'Tinypen.exe'
+    Copy-Item $Exe $installed -Force
+    @{ tag_name = "v$version"; assets = @(@{ name = 'Tinypen-win-x64.exe'; browser_download_url = $newer; digest = "sha256:$($hash.ToLower())" }) } |
+        ConvertTo-Json -Depth 4 | Set-Content (Join-Path $feed 'latest.json')
+    Remove-Item $stamp -ErrorAction SilentlyContinue
+    Write-Host "Version $version waiting"
+
+    $first = Start-Process $installed -PassThru
+    $start = Get-Date
+    $running = Until {
+        if (-not $first.HasExited) { return $null }
+        if ((Get-FileHash $installed -Algorithm SHA256).Hash -ne $hash) { return $null }
+        Get-Process -Name Tinypen -ErrorAction SilentlyContinue | Where-Object { $_.Path -like '*\tinypen-installed\Tinypen.exe' } | Select-Object -First 1
+    } 90
+    Write-Host "After $([int]((Get-Date) - $start).TotalSeconds) s"
+    Start-Sleep -Seconds 2
+    Check 'the copy that downloaded the update quit for it' { if (-not $first.HasExited) { 'it is still running' } }
+    Check "the new version, $version, took its place" { if ((Get-FileHash $installed -Algorithm SHA256).Hash -ne $hash) { 'the file is unchanged' } }
+    Check 'the new version is running' { if (-not $running) { 'no Tinypen runs from the folder' } }
+    # -like, not -Filter: Windows matches Tinypen.exe itself to Tinypen.exe.*
+    Check 'nothing is left beside it' { @(Get-ChildItem $folder | Where-Object Name -like 'Tinypen.exe.?*' | ForEach-Object Name) -join ', ' }
+    if ($running) { Stop-Process -Id $running.Id -Force -ErrorAction SilentlyContinue }
+}
 
 $results | Set-Content (Join-Path $Shots 'results.txt')
 if ($env:GITHUB_STEP_SUMMARY) { $results | ForEach-Object { "    $_" } | Add-Content $env:GITHUB_STEP_SUMMARY }

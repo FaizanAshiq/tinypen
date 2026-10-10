@@ -22,6 +22,10 @@ public struct Canvas: Sendable {
     /// Nothing showing: no board, and no marks on the screen. Marks on a closed board wait for it.
     public var isEmpty: Bool { board == nil && screen.isEmpty }
 
+    /// Nothing a restart would lose: no marks, on the screen or a closed board, and nothing cleared
+    /// that undo could still bring back.
+    public var isBlank: Bool { screen.isEmpty && sheet.isEmpty && cleared == nil }
+
     public mutating func add(_ mark: Mark) {
         keepCleared()
         change { $0.add(mark) }

@@ -29,6 +29,13 @@ From the [latest release](https://github.com/FaizanAshiq/tinypen/releases/latest
 | **Mac**, macOS 14 or later | `Tinypen-mac.zip`. Open it and drag Tinypen into Applications. The first time, macOS says it cannot check it for malware, as it does for any app not signed with a paid Apple developer account: open System Settings, Privacy & Security, and click Open Anyway. Zoom asks for Screen Recording the first time you use it. |
 | **Windows** 10 or 11 | `Tinypen-win-x64.exe`, or `Tinypen-win-arm64.exe` on an ARM PC. Run it and it waits in the tray, by the clock. If SmartScreen warns about an unknown publisher, click More info, then Run anyway. |
 
+Every copy then keeps itself up to date. Once a week Tinypen asks GitHub whether a newer version
+is out; nothing about you or your drawings goes with the question. It downloads the new version,
+checks it (on a Mac, that it is signed exactly as itself; on Windows, against the checksum GitHub
+gives), and installs it the first moment nothing is on screen, starting again quietly, so no
+message ever comes up over your slides. Keep it where it can change itself: Applications on a Mac,
+any folder of your own on Windows. Anywhere else, its menu names the new version to download.
+
 ## Building
 
 **Mac** (macOS 14 or later, Swift 6):

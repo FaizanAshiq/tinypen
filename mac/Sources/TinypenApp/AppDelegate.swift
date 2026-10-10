@@ -5,6 +5,7 @@ import TinypenCore
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var session: Session!
     private var hotkeys: HotKeyCenter!
+    private var updater: Updater!
     private var settings: SettingsWindowController?
     private var statusItem: NSStatusItem?
     private var taken: Set<HotKeyAction> = []
@@ -24,6 +25,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         session.onZoomRefused = { [weak self] in self?.explainZoom() }
         MainMenu.install(settings: #selector(showSettings(_:)), target: self)
         refreshStatusItem()
+        // First, as a copy opened from Downloads may move itself to Applications and start again there.
+        updater = Updater(isIdle: { [weak self] in self?.isIdle ?? false }, quit: { NSApp.terminate(nil) })
+        updater.start()
         // The first time, Settings shows the hotkeys, so the way in is never a guess.
         if firstLaunch {
             try? preferences.save(to: url)
@@ -63,6 +67,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         registered = keys
     }
 
+    /// Nothing shows and nothing would be lost, so an update can restart Tinypen.
+    private var isIdle: Bool {
+        session.isIdle && settings?.window?.isVisible != true
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         pendingSave?.perform()
     }
@@ -91,6 +100,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Rebuilt each time it opens, so the ticks and the hotkeys shown always match.
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        if let release = updater.available {
+            let download = NSMenuItem(title: "Download Tinypen \(release.version)...", action: #selector(downloadUpdate), keyEquivalent: "")
+            download.target = self
+            menu.addItem(download)
+            menu.addItem(.separator())
+        }
         for action in HotKeyAction.allCases {
             let binding = session.preferences.hotkeys[action]
             var title = action.title
@@ -143,6 +158,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func menuAction(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let action = HotKeyAction(rawValue: raw) else { return }
         perform(action)
+    }
+
+    @objc private func downloadUpdate() {
+        updater.openDownload()
     }
 
     @objc private func clearDrawings() {

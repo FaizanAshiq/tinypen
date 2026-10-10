@@ -21,6 +21,8 @@ mod tips;
 mod toolbar;
 #[cfg(windows)]
 mod tray;
+#[cfg(windows)]
+mod updater;
 
 fn main() {
     #[cfg(windows)]
