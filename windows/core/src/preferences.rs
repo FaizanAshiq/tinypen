@@ -226,12 +226,17 @@ mod tests {
     #[test]
     fn what_is_saved_comes_back() {
         let path = file("saved");
-        let mut preferences = Preferences::default();
-        preferences.color = "#007AFF".into();
-        preferences.size = 4;
-        preferences.tool = Tool::Highlighter;
-        preferences.hotkeys.draw = None;
-        preferences.hotkeys.zoom = Some(HotKey { key_code: 0x5A, modifiers: MOD_CONTROL | MOD_ALT });
+        let preferences = Preferences {
+            color: "#007AFF".into(),
+            size: 4,
+            tool: Tool::Highlighter,
+            hotkeys: HotKeys {
+                draw: None,
+                zoom: Some(HotKey { key_code: 0x5A, modifiers: MOD_CONTROL | MOD_ALT }),
+                ..HotKeys::DEFAULTS
+            },
+            ..Preferences::default()
+        };
         preferences.save(&path).unwrap();
         assert_eq!(Preferences::load(&path), preferences);
     }
