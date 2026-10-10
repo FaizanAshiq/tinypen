@@ -263,6 +263,7 @@ impl App {
     /// that had them, unless another app has taken them already.
     fn stop_drawing(&mut self, returning_focus: bool) {
         self.close_picker();
+        self.finish_strokes();
         self.drawing = false;
         self.toolbar.hide();
         self.refresh();
@@ -283,6 +284,7 @@ impl App {
             self.close_picker();
             return;
         }
+        self.finish_strokes();
         if !self.has_marks() && self.effect.is_none() {
             self.stop_drawing(true);
             return;
@@ -291,6 +293,16 @@ impl App {
         self.effect = None;
         self.last_was_clear = true;
         self.refresh();
+    }
+
+    /// Any stroke still being drawn becomes a mark, as when the button comes up.
+    fn finish_strokes(&mut self) {
+        for overlay in &mut self.overlays {
+            if overlay.finish_stroke() {
+                self.history.push(overlay.monitor.handle);
+                self.last_was_clear = false;
+            }
+        }
     }
 
     /// The toolbar's done button: every mark and board gone, the effect off, and drawing mode left.

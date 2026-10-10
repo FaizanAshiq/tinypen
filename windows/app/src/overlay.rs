@@ -222,7 +222,16 @@ impl Overlay {
             return false;
         }
         self.update_live(at, tool, shift, preferences);
-        self.drag_start = None;
+        self.finish_stroke()
+    }
+
+    /// The mark being drawn becomes a mark, as when the button comes up; true when it left one. Esc
+    /// and leaving drawing mode call this too, so a stroke never stays beyond the reach of undo,
+    /// clear and Esc, as one did on the Mac.
+    pub fn finish_stroke(&mut self) -> bool {
+        if self.drag_start.take().is_none() {
+            return false;
+        }
         match self.live.take() {
             Some(mark) => {
                 self.change(|marks| marks.add(mark));

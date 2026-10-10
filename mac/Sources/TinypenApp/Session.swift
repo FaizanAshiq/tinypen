@@ -117,6 +117,7 @@ final class Session {
     /// The marks stay and every click goes back to the apps under them, and the keyboard to the app
     /// that had it, unless Tinypen is about to show a window of its own.
     func stopDrawing(returningFocus: Bool = true) {
+        overlays.forEach { $0.view.finishStroke() }
         drawing = false
         toolbar.hide()
         overlays.filter(\.panel.isKeyWindow).forEach { $0.panel.orderOut(nil) }
@@ -130,6 +131,7 @@ final class Session {
     func escape() {
         // An open colour picker goes first, as Esc puts away anything open.
         if closePalette() { return }
+        overlays.forEach { $0.view.finishStroke() }
         guard hasMarks || effect != nil else {
             stopDrawing()
             return

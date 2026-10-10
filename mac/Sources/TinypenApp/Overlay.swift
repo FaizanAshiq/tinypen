@@ -167,14 +167,21 @@ final class OverlayView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         guard dragStart != nil else { return }
-        let point = convert(event.locationInWindow, from: nil)
-        updateLive(to: point, shift: event.modifierFlags.contains(.shift))
+        updateLive(to: convert(event.locationInWindow, from: nil), shift: event.modifierFlags.contains(.shift))
+        finishStroke()
+    }
+
+    /// The mark being drawn becomes a mark, as when the button comes up. Esc or leaving drawing
+    /// mode call this too. Reported: Esc pressed before the button came up stopped drawing instead
+    /// of erasing, and left the stroke on screen where undo, clear and Esc could not reach it.
+    func finishStroke() {
+        guard dragStart != nil else { return }
+        dragStart = nil
         if let mark = liveView.mark {
             changeMarks { $0.add(mark) }
             session.drew(on: displayID)
         }
         liveView.mark = nil
-        dragStart = nil
     }
 
     private func updateLive(to point: CGPoint, shift: Bool) {
