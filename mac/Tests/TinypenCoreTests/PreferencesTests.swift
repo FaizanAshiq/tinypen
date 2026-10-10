@@ -15,6 +15,13 @@ struct PreferencesTests {
         #expect(keys.zoom?.displayString == "⌥⇧Z")
     }
 
+    /// The menu lines shortcuts up on the right, as macOS does, from the key's own character.
+    @Test func aMenuShowsTheKeysCharacter() {
+        #expect(Preferences.defaults.hotkeys.draw?.menuCharacter == "d")
+        #expect(HotKeyBinding(keyCode: 18, modifiers: [.command]).menuCharacter == "1")
+        #expect(HotKeyBinding(keyCode: 36, modifiers: [.command]).menuCharacter == nil)
+    }
+
     @Test func noFileMeansDefaults() {
         #expect(Preferences.load(from: file()) == .defaults)
     }

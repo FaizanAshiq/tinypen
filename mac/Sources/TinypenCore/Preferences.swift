@@ -36,6 +36,14 @@ public struct HotKeyBinding: Equatable, Sendable, Codable {
     private static func label(for keyCode: UInt32) -> String {
         labels[keyCode] ?? "Key \(keyCode)"
     }
+
+    /// The character a menu lines the binding up with on the right, as macOS menus show
+    /// shortcuts: the letter or digit, or nil for a key a menu cannot show that way.
+    public var menuCharacter: String? {
+        guard let label = Self.labels[keyCode], label.count == 1, let character = label.first,
+              character.isLetter || character.isNumber else { return nil }
+        return label.lowercased()
+    }
 }
 
 /// In the order the menu and Settings list them.

@@ -74,11 +74,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         for action in HotKeyAction.allCases {
+            let binding = session.preferences.hotkeys[action]
             var title = action.title
-            if let binding = session.preferences.hotkeys[action] {
-                title += "  \(binding.displayString)" + (taken.contains(action) ? " (taken)" : "")
-            }
-            let item = NSMenuItem(title: title, action: #selector(menuAction(_:)), keyEquivalent: "")
+            if let binding, taken.contains(action) { title += " (taken)" }
+            // On the right, as macOS menus show shortcuts; written after the name only for a key
+            // a menu cannot show there.
+            let character = binding?.menuCharacter
+            if let binding, character == nil { title += "  \(binding.displayString)" }
+            let item = NSMenuItem(title: title, action: #selector(menuAction(_:)), keyEquivalent: character ?? "")
+            if let binding, character != nil { item.keyEquivalentModifierMask = Self.flags(binding.modifiers) }
             item.representedObject = action.rawValue
             item.state = isOn(action) ? .on : .off
             item.target = self
@@ -94,6 +98,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(settingsItem)
         let quit = NSMenuItem(title: "Quit Tinypen", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
+    }
+
+    private static func flags(_ modifiers: [ModifierKey]) -> NSEvent.ModifierFlags {
+        var flags: NSEvent.ModifierFlags = []
+        for modifier in modifiers {
+            switch modifier {
+            case .control: flags.insert(.control)
+            case .option: flags.insert(.option)
+            case .shift: flags.insert(.shift)
+            case .command: flags.insert(.command)
+            }
+        }
+        return flags
     }
 
     private func isOn(_ action: HotKeyAction) -> Bool {
