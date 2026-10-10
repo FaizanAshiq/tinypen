@@ -196,6 +196,12 @@ final class OverlayView: NSView {
         }
     }
 
+    /// Reaches the layer only while Option is held over the spotlight or the lens.
+    override func scrollWheel(with event: NSEvent) {
+        // A trackpad reports points, a wheel whole notches.
+        session.scrolled(event.hasPreciseScrollingDeltas ? event.scrollingDeltaY / 10 : event.scrollingDeltaY)
+    }
+
     override func keyDown(with event: NSEvent) {
         if !session.handleKey(event) { super.keyDown(with: event) }
     }
@@ -215,6 +221,15 @@ final class OverlayView: NSView {
         case .white: return drawn + " on a white board"
         case .black: return drawn + " on a black board"
         case nil: return drawn
+        }
+    }
+
+    /// How big the spotlight or the lens is, while one is on.
+    override func accessibilityValue() -> Any? {
+        switch session.effect {
+        case .spotlight: "Spotlight, radius \(Int(session.spotlightRadius)) points"
+        case .zoom: String(format: "Zoom %.1f times", session.magnification)
+        default: nil
         }
     }
 }

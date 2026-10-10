@@ -26,6 +26,8 @@ final class Session {
     private var lastWasClear = false
     /// The colour picker is open, and its hex field may want the keys.
     private var pickingColor = false
+    /// Option is held, so the spotlight or the lens takes the scroll that sizes it.
+    private var sizing = false
     private var screens: NSObjectProtocol?
     private lazy var keys = DrawingKeys { [unowned self] key in
         _ = handleKey(code: key.code, command: key.command, character: key.character)
@@ -224,13 +226,25 @@ final class Session {
         preferences.size = min(max(size, 0), Sizes.widths.count - 1)
     }
 
-    /// [ and ]: while the spotlight or the lens is on, the spotlight grows by 20 points a step and the
-    /// lens zooms, as scrolling did before scrolling reached the app under them; otherwise the pen.
     func stepSize(_ step: Int) {
+        pickSize(preferences.size + step)
+    }
+
+    /// Option held or let go, read each frame while a pointer tool is on: held over the spotlight or
+    /// the lens, the layer takes the mouse so a scroll sizes them, and lets it go again after.
+    func optionHeld(_ held: Bool) {
+        guard held != sizing else { return }
+        sizing = held
+        overlays.forEach { $0.panel.ignoresMouseEvents = !screen.takesMouse }
+    }
+
+    /// A scroll with Option held, in wheel notches: the spotlight grows by 20 points a notch, the
+    /// lens zooms.
+    func scrolled(_ notches: CGFloat) {
         switch effect {
-        case .spotlight: spotlightRadius = Spotlight.radius(spotlightRadius, stepped: CGFloat(step) * 20)
-        case .zoom: magnification = Lens.magnification(magnification, stepped: CGFloat(step))
-        default: return pickSize(preferences.size + step)
+        case .spotlight: spotlightRadius = Spotlight.radius(spotlightRadius, scrolled: notches * 20)
+        case .zoom: magnification = Lens.magnification(magnification, scrolled: notches)
+        default: return
         }
         overlays.forEach { $0.view.effects.needsDisplay = true }
     }
@@ -256,7 +270,7 @@ final class Session {
     }
 
     private var screen: Screen {
-        Screen(drawing: drawing, effect: effect, hasMarks: hasMarks, pickingColor: pickingColor)
+        Screen(drawing: drawing, effect: effect, hasMarks: hasMarks, pickingColor: pickingColor, sizing: sizing)
     }
 
     private func holdKeys() {
@@ -268,7 +282,7 @@ final class Session {
         let visible = drawing || effect != nil || hasMarks
         holdKeys()
         for overlay in overlays {
-            overlay.panel.ignoresMouseEvents = !screen.takesClicks
+            overlay.panel.ignoresMouseEvents = !screen.takesMouse
             if visible {
                 overlay.panel.orderFrontRegardless()
             } else {

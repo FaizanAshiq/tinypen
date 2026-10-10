@@ -64,6 +64,8 @@ final class EffectsView: PassThroughView {
     }
 
     @objc private func tick(_ link: CADisplayLink) {
+        // Read rather than watched: a key watched in other apps would need the Accessibility permission.
+        session.optionHeld(NSEvent.modifierFlags.contains(.option))
         let now = CACurrentMediaTime()
         let overlay = session.overlay(for: displayID)
         let point = overlay?.pointer()

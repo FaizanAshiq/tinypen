@@ -54,7 +54,6 @@ final class DrawingKeys {
         switch set {
         case .none: return
         case .escape: typed = []
-        case .escapeAndSize: typed = ["[", "]"]
         case .all: typed = Tool.allCases.map(\.key) + ["w", "1", "2", "3", "4", "5", "6", "[", "]"]
         }
         var keys = [Key(code: UInt16(kVK_Escape), command: false, character: nil)]

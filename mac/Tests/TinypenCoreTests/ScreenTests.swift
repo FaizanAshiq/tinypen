@@ -19,11 +19,27 @@ struct ScreenTests {
         #expect(Screen(drawing: true, effect: nil, pickingColor: true).heldKeys == .escape)
     }
 
-    /// Clicks pass through to other apps, so only the keys Tinypen needs are held, never letters.
-    @Test func aPointerToolHoldsEscAndItsSizeKeys() {
-        #expect(Screen(drawing: true, effect: .spotlight).heldKeys == .escapeAndSize)
-        #expect(Screen(drawing: false, effect: .zoom).heldKeys == .escapeAndSize)
+    /// Clicks pass through to other apps, so only Esc is held, never a letter or [ and ].
+    @Test func aPointerToolHoldsOnlyEsc() {
+        #expect(Screen(drawing: true, effect: .spotlight).heldKeys == .escape)
+        #expect(Screen(drawing: false, effect: .zoom).heldKeys == .escape)
         #expect(Screen(drawing: false, effect: .laser).heldKeys == .escape)
+    }
+
+    /// Option (Alt on Windows) held over the spotlight or the lens: the layer takes the mouse, so a
+    /// scroll sizes them; let go, and clicks and scrolls go to the apps again.
+    @Test func holdingOptionLetsTheSpotlightAndTheLensTakeTheScroll() {
+        #expect(Screen(drawing: false, effect: .spotlight, sizing: true).takesMouse)
+        #expect(Screen(drawing: true, effect: .zoom, sizing: true).takesMouse)
+        #expect(!Screen(drawing: false, effect: .spotlight).takesMouse)
+    }
+
+    /// Option is everyone's key: with nothing to size, it never stops a click reaching an app.
+    @Test func optionAloneTakesNothing() {
+        #expect(!Screen(drawing: false, effect: .laser, sizing: true).takesMouse)
+        #expect(!Screen(drawing: false, effect: nil, hasMarks: true, sizing: true).takesMouse)
+        #expect(!Screen(drawing: false, effect: nil, sizing: true).takesMouse)
+        #expect(Screen(drawing: true, effect: nil).takesMouse)
     }
 
     @Test func marksLeftOnScreenHoldEscAndNothingShownHoldsNothing() {

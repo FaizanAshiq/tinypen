@@ -10,10 +10,9 @@ use serde::{Deserialize, Serialize};
 pub enum HeldKeys {
     /// Nothing on screen: every key is the apps' own.
     None,
-    /// Esc only: marks left on screen, the laser, or the colour picker, whose hex field wants the rest.
+    /// Esc only: a pointer tool, marks left on screen, or the colour picker, whose hex field wants the
+    /// rest.
     Escape,
-    /// Esc, and [ and ] to size the spotlight or the zoom lens.
-    EscapeAndSize,
     /// Every key of drawing mode, as the layer takes the clicks and no other app is in reach.
     All,
 }
@@ -26,6 +25,8 @@ pub struct Screen {
     pub effect: Option<Tool>,
     pub has_marks: bool,
     pub picking_color: bool,
+    /// Alt (Option on the Mac) is held, to size the spotlight or the lens by scrolling.
+    pub sizing: bool,
 }
 
 impl Screen {
@@ -35,12 +36,15 @@ impl Screen {
         self.drawing && self.effect.is_none()
     }
 
+    /// The layer takes the mouse to draw, or while Alt is held over the spotlight or the lens, for the
+    /// scroll that sizes them; let go, and every click and scroll goes to the apps again.
+    pub fn takes_mouse(&self) -> bool {
+        self.takes_clicks() || self.sizing && matches!(self.effect, Some(Tool::Spotlight | Tool::Zoom))
+    }
+
     pub fn held_keys(&self) -> HeldKeys {
         if self.takes_clicks() {
             return if self.picking_color { HeldKeys::Escape } else { HeldKeys::All };
-        }
-        if matches!(self.effect, Some(Tool::Spotlight | Tool::Zoom)) {
-            return HeldKeys::EscapeAndSize;
         }
         if self.drawing || self.effect.is_some() || self.has_marks { HeldKeys::Escape } else { HeldKeys::None }
     }
@@ -117,11 +121,30 @@ mod tests {
         assert_eq!(Screen { picking_color: true, ..screen(true, None) }.held_keys(), HeldKeys::Escape);
     }
 
+    /// Clicks pass through to other apps, so only Esc is held, never a letter or [ and ].
     #[test]
-    fn a_pointer_tool_holds_esc_and_its_size_keys() {
-        assert_eq!(screen(true, Some(Tool::Spotlight)).held_keys(), HeldKeys::EscapeAndSize);
-        assert_eq!(screen(false, Some(Tool::Zoom)).held_keys(), HeldKeys::EscapeAndSize);
+    fn a_pointer_tool_holds_only_esc() {
+        assert_eq!(screen(true, Some(Tool::Spotlight)).held_keys(), HeldKeys::Escape);
+        assert_eq!(screen(false, Some(Tool::Zoom)).held_keys(), HeldKeys::Escape);
         assert_eq!(screen(false, Some(Tool::Laser)).held_keys(), HeldKeys::Escape);
+    }
+
+    /// Alt held over the spotlight or the lens: the layer takes the mouse, so a scroll sizes them;
+    /// let go, and clicks and scrolls go to the apps again.
+    #[test]
+    fn holding_alt_lets_the_spotlight_and_the_lens_take_the_scroll() {
+        assert!(Screen { sizing: true, ..screen(false, Some(Tool::Spotlight)) }.takes_mouse());
+        assert!(Screen { sizing: true, ..screen(true, Some(Tool::Zoom)) }.takes_mouse());
+        assert!(!screen(false, Some(Tool::Spotlight)).takes_mouse());
+    }
+
+    /// Alt is everyone's key: with nothing to size, it never stops a click reaching an app.
+    #[test]
+    fn alt_alone_takes_nothing() {
+        assert!(!Screen { sizing: true, ..screen(false, Some(Tool::Laser)) }.takes_mouse());
+        assert!(!Screen { sizing: true, has_marks: true, ..Screen::default() }.takes_mouse());
+        assert!(!Screen { sizing: true, ..Screen::default() }.takes_mouse());
+        assert!(screen(true, None).takes_mouse());
     }
 
     #[test]

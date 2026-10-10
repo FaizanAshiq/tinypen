@@ -116,6 +116,8 @@ struct App {
     /// The keys held as hotkeys now, and each one's modifiers and virtual key, by id from `HELD`.
     holding: HeldKeys,
     held: Vec<(HOT_KEY_MODIFIERS, u16)>,
+    /// Alt is held, so the spotlight or the lens takes the scroll that sizes it.
+    sizing: bool,
     clock: Instant,
     ticking: bool,
 }
@@ -155,6 +157,7 @@ impl App {
                 previous: None,
                 taken: Vec::new(),
                 holding: HeldKeys::None,
+                sizing: false,
                 held: Vec::new(),
                 clock: Instant::now(),
                 ticking: false,
@@ -251,7 +254,13 @@ impl App {
     }
 
     fn screen(&self) -> Screen {
-        Screen { drawing: self.drawing, effect: self.effect, has_marks: self.has_marks(), picking_color: self.picker.shown }
+        Screen {
+            drawing: self.drawing,
+            effect: self.effect,
+            has_marks: self.has_marks(),
+            picking_color: self.picker.shown,
+            sizing: self.sizing,
+        }
     }
 
     /// Holds the keys Tinypen needs as hotkeys while it shows something, so they reach it whichever
@@ -271,10 +280,8 @@ impl App {
         if holding != HeldKeys::None {
             keys.push((none, VK_ESCAPE.0));
         }
-        if matches!(holding, HeldKeys::EscapeAndSize | HeldKeys::All) {
-            keys.extend([(none, VK_OEM_4.0), (none, VK_OEM_6.0)]);
-        }
         if holding == HeldKeys::All {
+            keys.extend([(none, VK_OEM_4.0), (none, VK_OEM_6.0)]);
             keys.extend([(none, VK_DELETE.0), (none, VK_BACK.0), (MOD_CONTROL, 0x5A), (none, 0x57)]);
             keys.extend(Tool::ALL.iter().map(|tool| (none, tool.key().to_ascii_uppercase() as u16)));
             keys.extend((0x31..=0x36).map(|code| (none, code)));
@@ -423,13 +430,17 @@ impl App {
         self.render_toolbar();
     }
 
-    /// [ and ]: while the spotlight or the lens is on, the spotlight grows by 20 pixels a step and the
-    /// lens zooms, as the wheel did before the wheel reached the app under them; otherwise the pen.
     fn step_size(&mut self, step: i32) {
+        self.pick_size((self.preferences.size as i32 + step).max(0) as usize);
+    }
+
+    /// A scroll with Alt held, in wheel notches: the spotlight grows by 20 pixels a notch, the lens
+    /// zooms.
+    fn scrolled(&mut self, notches: f32) {
         match self.effect {
-            Some(Tool::Spotlight) => self.spotlight_radius = Spotlight::radius(self.spotlight_radius, step as f32 * 20.0),
-            Some(Tool::Zoom) => self.magnification = Lens::magnification(self.magnification, step as f32),
-            _ => return self.pick_size((self.preferences.size as i32 + step).max(0) as usize),
+            Some(Tool::Spotlight) => self.spotlight_radius = Spotlight::radius(self.spotlight_radius, notches * 20.0),
+            Some(Tool::Zoom) => self.magnification = Lens::magnification(self.magnification, notches),
+            _ => return,
         }
         self.tick();
     }
@@ -574,10 +585,10 @@ impl App {
     /// and drawn.
     fn refresh(&mut self) {
         let visible = self.drawing || self.effect.is_some() || self.has_marks();
-        let takes_clicks = self.screen().takes_clicks();
+        let takes_mouse = self.screen().takes_mouse();
         self.hold_keys();
         for overlay in &mut self.overlays {
-            overlay.take_clicks(takes_clicks);
+            overlay.take_clicks(takes_mouse);
             overlay.show(visible);
         }
         if self.drawing {
@@ -635,8 +646,15 @@ impl App {
         let _ = self.picker.render(&self.graphics, &self.preferences.color);
     }
 
-    /// Each frame while an effect is on: follow the pointer, fade the laser, move the lens.
+    /// Each frame while an effect is on: follow the pointer, fade the laser, move the lens, and read
+    /// Alt, held over the spotlight or the lens to take the scroll that sizes them.
     fn tick(&mut self) {
+        let sizing = unsafe { GetAsyncKeyState(VK_MENU.0 as i32) } < 0;
+        if sizing != self.sizing {
+            self.sizing = sizing;
+            let takes_mouse = self.screen().takes_mouse();
+            self.overlays.iter().for_each(|overlay| overlay.take_clicks(takes_mouse));
+        }
         let mut at = POINT::default();
         if unsafe { GetCursorPos(&mut at) }.is_err() {
             return;
@@ -819,6 +837,10 @@ impl App {
                 let _ = self.overlays[index].render(&self.graphics, &scene);
                 self.render_toolbar();
             }
+            // Reaches the layer only while Alt is held over the spotlight or the lens.
+            WM_MOUSEWHEEL => self.scrolled((wparam.0 >> 16) as i16 as f32 / 120.0),
+            // Alt and a click over the spotlight or the lens leave the app in front where it is.
+            WM_MOUSEACTIVATE if !marking => return Some(LRESULT(MA_NOACTIVATE as isize)),
             WM_DPICHANGED | WM_DISPLAYCHANGE => unsafe {
                 let _ = PostMessageW(Some(self.window), REBUILD, WPARAM(0), LPARAM(0));
             },

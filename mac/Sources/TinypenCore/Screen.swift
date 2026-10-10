@@ -4,10 +4,9 @@ import CoreGraphics
 public enum HeldKeys: Equatable, Sendable {
     /// Nothing on screen: every key is the apps' own.
     case none
-    /// Esc only: marks left on screen, the laser, or the colour picker, whose hex field wants the rest.
+    /// Esc only: a pointer tool, marks left on screen, or the colour picker, whose hex field wants the
+    /// rest.
     case escape
-    /// Esc, and [ and ] to size the spotlight or the zoom lens.
-    case escapeAndSize
     /// Every key of drawing mode, as the layer takes the clicks and no other app is in reach.
     case all
 }
@@ -20,12 +19,15 @@ public struct Screen: Equatable, Sendable {
     public var effect: Tool?
     public var hasMarks: Bool
     public var pickingColor: Bool
+    /// Option (Alt on Windows) is held, to size the spotlight or the lens by scrolling.
+    public var sizing: Bool
 
-    public init(drawing: Bool, effect: Tool?, hasMarks: Bool = false, pickingColor: Bool = false) {
+    public init(drawing: Bool, effect: Tool?, hasMarks: Bool = false, pickingColor: Bool = false, sizing: Bool = false) {
         self.drawing = drawing
         self.effect = effect
         self.hasMarks = hasMarks
         self.pickingColor = pickingColor
+        self.sizing = sizing
     }
 
     /// Only a marking tool takes clicks. The laser, the spotlight and the zoom lens let every click
@@ -33,9 +35,14 @@ public struct Screen: Equatable, Sendable {
     /// from their hotkeys they did not.
     public var takesClicks: Bool { drawing && effect == nil }
 
+    /// The layer takes the mouse to draw, or while Option is held over the spotlight or the lens, for
+    /// the scroll that sizes them; let go, and every click and scroll goes to the apps again.
+    public var takesMouse: Bool {
+        takesClicks || sizing && (effect == .spotlight || effect == .zoom)
+    }
+
     public var heldKeys: HeldKeys {
         if takesClicks { return pickingColor ? .escape : .all }
-        if effect == .spotlight || effect == .zoom { return .escapeAndSize }
         return drawing || effect != nil || hasMarks ? .escape : .none
     }
 }
