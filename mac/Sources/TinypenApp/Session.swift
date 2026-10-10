@@ -25,7 +25,9 @@ final class Session {
     private var history: [CGDirectDisplayID] = []
     private var lastWasClear = false
     private var screens: NSObjectProtocol?
-    private var resigned: NSObjectProtocol?
+    private lazy var keys = DrawingKeys { [unowned self] key in
+        _ = handleKey(code: key.code, command: key.command, character: key.character)
+    }
     /// The app in front when drawing started, which gets the keyboard back when it stops.
     private var previousApp: NSRunningApplication?
     /// The display whose layer takes the keys while drawing.
@@ -43,16 +45,6 @@ final class Session {
         screens = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                          object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.rebuildOverlays() }
-        }
-        // Another app took the keyboard mid drawing, a macOS prompt or Command Tab, so the layer stops
-        // taking clicks too, the marks kept. Reported: a prompt opened under the layer, out of reach,
-        // and Esc then went to the terminal behind it.
-        resigned = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification,
-                                                          object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, self.drawing else { return }
-                self.stopDrawing(returningFocus: false)
-            }
         }
         zoom.onRefused = { [weak self] in self?.zoomRefused() }
     }
@@ -94,10 +86,12 @@ final class Session {
         drawing ? stopDrawing() : startDrawing()
     }
 
-    /// Tinypen takes the keyboard while drawing, so Esc and the tool keys reach it and not the app
-    /// in front. Reported: Esc in drawing mode went to the terminal behind the layer instead.
+    /// Esc and the tool keys are held while drawing, so they reach Tinypen and not the app in front.
+    /// Tinypen asks for the keyboard too, which macOS may refuse, for the colour picker's hex field.
+    /// Reported: Esc in drawing mode went to the terminal behind the layer instead.
     func startDrawing() {
         drawing = true
+        keys.hold()
         if let front = NSWorkspace.shared.frontmostApplication, front != NSRunningApplication.current { previousApp = front }
         NSApp.activate()
         refresh()
@@ -119,6 +113,7 @@ final class Session {
     func stopDrawing(returningFocus: Bool = true) {
         overlays.forEach { $0.view.finishStroke() }
         drawing = false
+        keys.release()
         toolbar.hide()
         overlays.filter(\.panel.isKeyWindow).forEach { $0.panel.orderOut(nil) }
         refresh()
@@ -206,9 +201,16 @@ final class Session {
         toolbar.closePalette()
     }
 
+    /// The hex field may want the keys, so only Esc stays held, to put the picker away.
+    func paletteOpened() {
+        keys.hold(onlyEscape: true)
+    }
+
     /// A custom colour picked is kept beside the six, and the keys go back to the drawing layer.
     func paletteClosed() {
         preferences.recentColors = Palette.recent(adding: preferences.colorHex, to: preferences.recentColors)
+        guard drawing else { return }
+        keys.hold()
         takeKeys()
     }
 
@@ -273,10 +275,18 @@ final class Session {
 
     // MARK: Keys
 
-    /// The keys of drawing mode. False for one it does not use.
+    /// A key the drawing layer heard, when Tinypen has the keyboard.
     func handleKey(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function])
-        switch event.keyCode {
+        guard flags.subtracting([.command, .shift]).isEmpty, flags != [.command, .shift] else { return false }
+        return handleKey(code: event.keyCode, command: flags.contains(.command),
+                         character: event.charactersIgnoringModifiers?.lowercased().first)
+    }
+
+    /// The keys of drawing mode, from the drawing layer or held as hotkeys. False for one it does
+    /// not use.
+    func handleKey(code: UInt16, command: Bool, character: Character?) -> Bool {
+        switch code {
         case 53:
             escape()
             return true
@@ -286,12 +296,11 @@ final class Session {
         default:
             break
         }
-        let key = event.charactersIgnoringModifiers?.lowercased().first
-        if flags == .command, key == "z" {
+        if command, character == "z" {
             undo()
             return true
         }
-        guard flags.subtracting(.shift).isEmpty, let key else { return false }
+        guard !command, let key = character else { return false }
         if let tool = Tool.forKey(key) {
             pick(tool)
             return true

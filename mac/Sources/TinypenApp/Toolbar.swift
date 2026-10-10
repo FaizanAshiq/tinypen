@@ -153,6 +153,7 @@ final class Toolbar: NSObject, NSPopoverDelegate {
         popover.show(relativeTo: colorButton.bounds, of: colorButton, preferredEdge: .minY)
         palette = popover
         self.picker = picker
+        session.paletteOpened()
     }
 
     /// True when the picker was open: the click that puts it away draws nothing.
