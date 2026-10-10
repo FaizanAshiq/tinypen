@@ -882,6 +882,9 @@ impl App {
             let title = format!("Download Tinypen {version}...");
             entries.splice(0..0, [Some(Entry { command: tray::DOWNLOAD, title, checked: false, enabled: true }), None]);
         }
+        if let Some(title) = updater::updated_line() {
+            entries.splice(0..0, [Some(Entry { command: tray::UPDATED, title, checked: false, enabled: false }), None]);
+        }
         match self.tray.menu(&entries) {
             Ok(Some(tray::DRAW)) => self.toggle_drawing(),
             Ok(Some(tray::LASER)) => self.toggle_effect(Tool::Laser),

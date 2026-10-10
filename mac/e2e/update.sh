@@ -44,6 +44,7 @@ check "the copy that downloaded the update quit for it" '! kill -0 "$first" 2>/d
 check "the app in Applications is $version" '[ "$(shown)" = "$version" ]'
 check "the new version is running" 'pgrep -f "$app/Contents/MacOS/Tinypen" >/dev/null'
 check "nothing is left beside it" '[ ! -e "$app.replaced" ]'
+check "its menu says it was updated today" '[ "$(defaults read com.faizanashiq.tinypen TinypenUpdated 2>/dev/null)" = "$version $(date +%F)" ]'
 
 pkill -f "$app/Contents/MacOS/Tinypen" || true
 exit $failed

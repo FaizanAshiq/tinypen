@@ -90,3 +90,26 @@ struct UpdateScheduleTests {
         #expect(UpdateSchedule.wait(lastLook: lastLook, now: lastLook + 3_600 + 7 * day) == 0)
     }
 }
+
+/// After an update, the menu says so for the rest of that day: the version and the day are written
+/// just before the new copy takes over.
+struct UpdatedNoteTests {
+    @Test func theDayOfTheUpdateTheMenuSaysSo() {
+        #expect(UpdatedNote.line(marker: "1.1.1 2026-10-11", current: "1.1.1", today: "2026-10-11") == "Updated to Tinypen 1.1.1")
+    }
+
+    @Test func theNextDayItSaysNothing() {
+        #expect(UpdatedNote.line(marker: "1.1.1 2026-10-11", current: "1.1.1", today: "2026-10-12") == nil)
+    }
+
+    /// Written for a version that did not start, as when the swap failed: nothing to say.
+    @Test func aMarkerForAnotherVersionSaysNothing() {
+        #expect(UpdatedNote.line(marker: "1.1.2 2026-10-11", current: "1.1.1", today: "2026-10-11") == nil)
+        #expect(UpdatedNote.line(marker: nil, current: "1.1.1", today: "2026-10-11") == nil)
+        #expect(UpdatedNote.line(marker: "nonsense", current: "1.1.1", today: "2026-10-11") == nil)
+    }
+
+    @Test func theMarkerHoldsTheVersionAndTheDay() {
+        #expect(UpdatedNote.marker(version: "1.1.1", today: "2026-10-11") == "1.1.1 2026-10-11")
+    }
+}

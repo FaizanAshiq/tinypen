@@ -100,6 +100,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Rebuilt each time it opens, so the ticks and the hotkeys shown always match.
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        if let line = updater.updatedLine {
+            // No action, so it shows as a line of text rather than something to click.
+            menu.addItem(NSMenuItem(title: line, action: nil, keyEquivalent: ""))
+            menu.addItem(.separator())
+        }
         if let release = updater.available {
             let download = NSMenuItem(title: "Download Tinypen \(release.version)...", action: #selector(downloadUpdate), keyEquivalent: "")
             download.target = self

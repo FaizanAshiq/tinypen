@@ -68,3 +68,19 @@ public enum UpdateSchedule {
         min(max(0, lastLook + week - now), hour)
     }
 }
+
+/// After an update, the menu says so for the rest of that day. The copy that installs the update
+/// writes the version and the day just before the new copy takes over.
+public enum UpdatedNote {
+    /// "1.1.1 2026-10-11"; the day as yyyy-MM-dd in local time.
+    public static func marker(version: String, today: String) -> String {
+        "\(version) \(today)"
+    }
+
+    /// The menu's line, while today is the day this version took over; nil otherwise.
+    public static func line(marker: String?, current: String, today: String) -> String? {
+        let parts = (marker ?? "").split(separator: " ").map(String.init)
+        guard parts == [current, today] else { return nil }
+        return "Updated to Tinypen \(current)"
+    }
+}

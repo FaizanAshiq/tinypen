@@ -33,7 +33,7 @@ Every copy then keeps itself up to date. Once a week Tinypen asks GitHub whether
 is out; nothing about you or your drawings goes with the question. It downloads the new version,
 checks it (on a Mac, that it is signed exactly as itself; on Windows, against the checksum GitHub
 gives), and installs it the first moment nothing is on screen, starting again quietly, so no
-message ever comes up over your slides. Keep it where it can change itself: Applications on a Mac,
+message ever comes up over your slides; its menu says "Updated to Tinypen X" for the rest of that day. Keep it where it can change itself: Applications on a Mac,
 any folder of your own on Windows. Anywhere else, its menu names the new version to download.
 
 ## Building
