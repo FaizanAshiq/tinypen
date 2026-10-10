@@ -15,6 +15,7 @@ use windows::core::{w, HSTRING, PCWSTR};
 use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, WPARAM};
 use windows::Win32::Networking::WinHttp::*;
 use windows::Win32::Security::Cryptography::{BCryptHash, BCRYPT_SHA256_ALG_HANDLE};
+use windows::Win32::System::SystemInformation::GetLocalTime;
 use windows::Win32::System::Threading::{OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE};
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{KillTimer, PostMessageW, SetTimer, SW_SHOWNORMAL, WM_APP};
@@ -38,8 +39,8 @@ const FIRST: u64 = 10;
 const RETRY: u64 = 60;
 
 enum Outcome {
-    /// Downloaded and checked, beside the app.
-    Ready,
+    /// Downloaded and checked, beside the app: this version.
+    Ready(String),
     /// Newer, and not installed by this copy.
     Available(String),
     Nothing,
@@ -51,7 +52,8 @@ pub struct Updater {
     /// When the last look was, in seconds since 1970.
     last: u64,
     looking: Option<Receiver<Outcome>>,
-    ready: bool,
+    /// The version downloaded and checked, waiting to install.
+    ready: Option<String>,
     /// The newer version, when this copy does not install it itself, for the menu.
     pub available: Option<String>,
 }
@@ -62,7 +64,7 @@ impl Updater {
     pub fn new(window: HWND, downloaded: bool) -> Updater {
         let stamp = Preferences::default_path().with_file_name("last-update-check");
         let last = if downloaded { 0 } else { std::fs::read_to_string(&stamp).ok().and_then(|text| text.trim().parse().ok()).unwrap_or(0) };
-        let updater = Updater { window, stamp, last, looking: None, ready: false, available: None };
+        let updater = Updater { window, stamp, last, looking: None, ready: None, available: None };
         updater.schedule(update::wait(last, now()).max(FIRST));
         updater
     }
@@ -79,8 +81,8 @@ impl Updater {
         unsafe {
             let _ = KillTimer(Some(self.window), TIMER);
         }
-        if self.ready {
-            if idle && install() {
+        if let Some(version) = &self.ready {
+            if idle && install(version) {
                 return true;
             }
             self.schedule(if idle { HOUR } else { RETRY });
@@ -115,11 +117,11 @@ impl Updater {
     pub fn looked(&mut self) {
         let Some(outcome) = self.looking.take().and_then(|receiver| receiver.try_recv().ok()) else { return };
         match outcome {
-            Outcome::Ready => self.ready = true,
+            Outcome::Ready(version) => self.ready = Some(version),
             Outcome::Available(version) => self.available = Some(version),
             Outcome::Nothing => {}
         }
-        self.schedule(if self.ready { 1 } else { HOUR });
+        self.schedule(if self.ready.is_some() { 1 } else { HOUR });
     }
 
     /// The new version's release page, to download it from.
@@ -177,7 +179,8 @@ fn look() -> Outcome {
     let Some(release) = answer
         .and_then(|bytes| String::from_utf8(bytes).ok())
         .and_then(|answer| NewRelease::newer(&answer, CURRENT, ASSET)) else { return Outcome::Nothing };
-    let available = Outcome::Available(release.version);
+    let version = release.version;
+    let available = Outcome::Available(version.clone());
     let (Some(download), Ok(exe)) = (release.download, std::env::current_exe()) else { return available };
     // A test feed names a file on this PC; GitHub's answer only addresses on the web.
     let bytes = if download.url.starts_with("https://") {
@@ -190,7 +193,7 @@ fn look() -> Outcome {
     let Some(bytes) = bytes.filter(|bytes| sha256(bytes) == download.sha256) else { return available };
     // A folder this account cannot write to, as Program Files: the menu names the version instead.
     match std::fs::write(beside(&exe, ".update"), &bytes) {
-        Ok(()) => Outcome::Ready,
+        Ok(()) => Outcome::Ready(version),
         Err(_) => available,
     }
 }
@@ -255,22 +258,45 @@ unsafe fn read(request: *mut core::ffi::c_void) -> Option<Vec<u8>> {
 
 /// The downloaded update takes this copy's place and starts, to wait for this one to quit. False
 /// when Windows refused a step, with everything put back as it was.
-fn install() -> bool {
+fn install(version: &str) -> bool {
     let Ok(exe) = std::env::current_exe() else { return false };
+    let marker = updated_marker_path();
+    let _ = std::fs::write(&marker, update::updated_marker(version, &today()));
     let (update, old) = (beside(&exe, ".update"), beside(&exe, ".old"));
     let _ = std::fs::remove_file(&old);
     // Windows lets a running program be renamed, though not replaced.
     if std::fs::rename(&exe, &old).is_err() {
+        let _ = std::fs::remove_file(&marker);
         return false;
     }
     if std::fs::rename(&update, &exe).is_err() {
         let _ = std::fs::rename(&old, &exe);
+        let _ = std::fs::remove_file(&marker);
         return false;
     }
     if Command::new(&exe).arg(AFTER).arg(std::process::id().to_string()).spawn().is_err() {
         let _ = std::fs::rename(&exe, &update);
         let _ = std::fs::rename(&old, &exe);
+        let _ = std::fs::remove_file(&marker);
         return false;
     }
     true
+}
+
+/// The version installed and the day, written just before the new version takes over, so its
+/// menu says so for the rest of that day.
+fn updated_marker_path() -> PathBuf {
+    Preferences::default_path().with_file_name("updated-to")
+}
+
+/// "Updated to Tinypen X" for the menu, the day this version took over.
+pub fn updated_line() -> Option<String> {
+    let marker = std::fs::read_to_string(updated_marker_path()).ok();
+    update::updated_line(marker.as_deref(), CURRENT, &today())
+}
+
+/// Today in local time, as yyyy-mm-dd.
+fn today() -> String {
+    let now = unsafe { GetLocalTime() };
+    format!("{:04}-{:02}-{:02}", now.wYear, now.wMonth, now.wDay)
 }

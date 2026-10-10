@@ -60,9 +60,46 @@ pub fn wait(last_look: u64, now: u64) -> u64 {
     (last_look + WEEK).saturating_sub(now).min(HOUR)
 }
 
+/// After an update, the menu says so for the rest of that day. The copy that installs the update
+/// writes the version and the day, as yyyy-mm-dd in local time, just before the new copy takes over.
+pub fn updated_marker(version: &str, today: &str) -> String {
+    format!("{version} {today}")
+}
+
+/// The menu's line, while today is the day this version took over; None otherwise.
+pub fn updated_line(marker: Option<&str>, current: &str, today: &str) -> Option<String> {
+    let parts: Vec<&str> = marker?.split(' ').collect();
+    (parts == [current, today]).then(|| format!("Updated to Tinypen {current}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// After an update, the menu says so for the rest of that day: the version and the day are
+    /// written just before the new copy takes over.
+    #[test]
+    fn the_day_of_the_update_the_menu_says_so() {
+        assert_eq!(updated_line(Some("1.1.1 2026-10-11"), "1.1.1", "2026-10-11"), Some("Updated to Tinypen 1.1.1".into()));
+    }
+
+    #[test]
+    fn the_next_day_it_says_nothing() {
+        assert_eq!(updated_line(Some("1.1.1 2026-10-11"), "1.1.1", "2026-10-12"), None);
+    }
+
+    /// Written for a version that did not start, as when the swap failed: nothing to say.
+    #[test]
+    fn a_marker_for_another_version_says_nothing() {
+        assert_eq!(updated_line(Some("1.1.2 2026-10-11"), "1.1.1", "2026-10-11"), None);
+        assert_eq!(updated_line(None, "1.1.1", "2026-10-11"), None);
+        assert_eq!(updated_line(Some("nonsense"), "1.1.1", "2026-10-11"), None);
+    }
+
+    #[test]
+    fn the_marker_holds_the_version_and_the_day() {
+        assert_eq!(updated_marker("1.1.1", "2026-10-11"), "1.1.1 2026-10-11");
+    }
 
     const DAY: u64 = 86_400;
     const ASSET: &str = "Tinypen-win-x64.exe";

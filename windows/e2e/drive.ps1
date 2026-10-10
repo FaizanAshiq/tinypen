@@ -239,6 +239,11 @@ if ($Next) {
     Check 'the copy that downloaded the update quit for it' { if (-not $first.HasExited) { 'it is still running' } }
     Check "the new version, $version, took its place" { if ((Get-FileHash $installed -Algorithm SHA256).Hash -ne $hash) { 'the file is unchanged' } }
     Check 'the new version is running' { if (-not $running) { 'no Tinypen runs from the folder' } }
+    Check 'its menu says it was updated today' {
+        $marker = Get-Content (Join-Path $env:APPDATA 'Tinypen\updated-to') -ErrorAction SilentlyContinue
+        $expected = "$version $(Get-Date -Format 'yyyy-MM-dd')"
+        if ($marker -ne $expected) { "the marker says '$marker', not '$expected'" }
+    }
     # -like, not -Filter: Windows matches Tinypen.exe itself to Tinypen.exe.*
     Check 'nothing is left beside it' { @(Get-ChildItem $folder | Where-Object Name -like 'Tinypen.exe.?*' | ForEach-Object Name) -join ', ' }
     if ($running) { Stop-Process -Id $running.Id -Force -ErrorAction SilentlyContinue }

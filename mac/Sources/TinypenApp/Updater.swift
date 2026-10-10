@@ -16,6 +16,9 @@ final class Updater {
     /// answer, so the end-to-end test can update to a build of its own.
     private static let feedVariable = "TINYPEN_UPDATE_FEED"
     private static let lastLookKey = "TinypenLastUpdateCheck"
+    /// The version installed and the day, written just before the new version takes over, so its
+    /// menu says so for the rest of that day.
+    private static let updatedKey = "TinypenUpdated"
 
     /// The newer version, once one is found that this copy does not install itself, for the menu.
     private(set) var available: NewRelease?
@@ -92,7 +95,7 @@ final class Updater {
         guard let answer = try? await URLSession.shared.data(from: source),
               let release = NewRelease.newer(in: answer.0, than: current) else { return }
         if route == .itself, let zip = release.download, let app = await prepare(zip) {
-            install(app)
+            install(app, version: release.version)
             return
         }
         available = release
@@ -122,11 +125,12 @@ final class Updater {
 
     /// Waits, a minute at a time, for nothing to show and nothing to be lost, then quits for the new
     /// version to take this one's place and start.
-    private func install(_ app: URL) {
+    private func install(_ app: URL, version: String) {
         guard isIdle() else {
-            schedule(in: 60) { $0.install(app) }
+            schedule(in: 60) { $0.install(app, version: version) }
             return
         }
+        UserDefaults.standard.set(UpdatedNote.marker(version: version, today: Self.today), forKey: Self.updatedKey)
         let swap = """
             while kill -0 "$1" 2>/dev/null; do sleep 0.2; done
             rm -rf "$2.replaced"
@@ -136,10 +140,24 @@ final class Updater {
             open "$2"
             """
         guard Self.launch(swap, [Bundle.main.bundlePath, app.path]) else {
+            UserDefaults.standard.removeObject(forKey: Self.updatedKey)
             schedule(in: UpdateSchedule.hour) { await $0.lookIfDue() }
             return
         }
         quit()
+    }
+
+    /// "Updated to Tinypen X" for the menu, the day this version took over.
+    var updatedLine: String? {
+        UpdatedNote.line(marker: UserDefaults.standard.string(forKey: Self.updatedKey), current: current, today: Self.today)
+    }
+
+    /// Today in local time, as yyyy-MM-dd.
+    private static var today: String {
+        let format = DateFormatter()
+        format.locale = Locale(identifier: "en_US_POSIX")
+        format.dateFormat = "yyyy-MM-dd"
+        return format.string(from: Date())
     }
 
     /// Opened from the unzipped download in Downloads, macOS lets the app change nothing where it
