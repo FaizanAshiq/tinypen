@@ -27,6 +27,8 @@ final class Session {
     private var screens: NSObjectProtocol?
     /// The app in front when drawing started, which gets the keyboard back when it stops.
     private var previousApp: NSRunningApplication?
+    /// The display whose layer takes the keys while drawing.
+    private var keyDisplay: CGDirectDisplayID?
 
     var onPreferences: ((Preferences) -> Void)?
     /// Drawing mode, the effect or the marks changed, for the menu.
@@ -89,9 +91,16 @@ final class Session {
         NSApp.activate()
         refresh()
         guard let target = overlayUnderPointer else { return }
+        keyDisplay = target.displayID
+        takeKeys()
+        toolbar.show(over: target.panel.frame)
+    }
+
+    /// The drawing layer takes the keys, again after the colour picker had them for its hex field.
+    private func takeKeys() {
+        guard drawing, let target = overlays.first(where: { $0.displayID == keyDisplay }) ?? overlayUnderPointer else { return }
         target.panel.makeKeyAndOrderFront(nil)
         target.panel.makeFirstResponder(target.view)
-        toolbar.show(over: target.panel.frame)
     }
 
     /// The marks stay and every click goes back to the apps under them, and the keyboard to the app
@@ -177,8 +186,23 @@ final class Session {
         preferences.colorHex = Palette.colors[index]
     }
 
+    /// True when the colour picker was open and this put it away.
+    func closePalette() -> Bool {
+        toolbar.closePalette()
+    }
+
+    /// A custom colour picked is kept beside the six, and the keys go back to the drawing layer.
+    func paletteClosed() {
+        preferences.recentColors = Palette.recent(adding: preferences.colorHex, to: preferences.recentColors)
+        takeKeys()
+    }
+
+    func pickSize(_ size: Int) {
+        preferences.size = min(max(size, 0), Sizes.widths.count - 1)
+    }
+
     func stepSize(_ step: Int) {
-        preferences.size = min(max(preferences.size + step, 0), Sizes.widths.count - 1)
+        pickSize(preferences.size + step)
     }
 
     /// A scroll, in wheel notches: the spotlight grows by 20 points a notch, the lens zooms.

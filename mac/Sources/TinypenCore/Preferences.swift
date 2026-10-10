@@ -138,6 +138,8 @@ public struct Preferences: Equatable, Sendable, Codable {
     /// The marking tool in hand when drawing mode starts.
     public var tool: Tool
     public var showMenuBarIcon: Bool
+    /// Custom colours picked lately, newest first, shown beside the six.
+    public var recentColors: [String] = []
 
     public static let defaults = Preferences(hotkeys: .defaults, colorHex: Palette.colors[0], size: 1, tool: .pen,
                                              showMenuBarIcon: true)
@@ -178,13 +180,15 @@ public struct Preferences: Equatable, Sendable, Codable {
         let defaults = Self.defaults
         hotkeys = (try? container.decodeIfPresent(HotKeys.self, forKey: .hotkeys)) ?? defaults.hotkeys
         let hex = (try? container.decodeIfPresent(String.self, forKey: .colorHex)) ?? defaults.colorHex
-        colorHex = hex.hasPrefix("#") && hex.count == 7 ? hex.uppercased() : defaults.colorHex
+        colorHex = hex.hasPrefix("#") ? Palette.hex(typed: hex) ?? defaults.colorHex : defaults.colorHex
         let stored = (try? container.decodeIfPresent(Int.self, forKey: .size)) ?? defaults.size
         size = min(max(stored, 0), Sizes.widths.count - 1)
         let picked = (try? container.decodeIfPresent(Tool.self, forKey: .tool)) ?? defaults.tool
         tool = picked.drawsMarks ? picked : defaults.tool
         showMenuBarIcon = (try? container.decodeIfPresent(Bool.self, forKey: .showMenuBarIcon)) ?? defaults.showMenuBarIcon
+        let recent = (try? container.decodeIfPresent([String].self, forKey: .recentColors)) ?? []
+        recentColors = Array(recent.compactMap(Palette.hex(typed:)).prefix(Palette.recentCount))
     }
 
-    private enum CodingKeys: String, CodingKey { case hotkeys, colorHex, size, tool, showMenuBarIcon }
+    private enum CodingKeys: String, CodingKey { case hotkeys, colorHex, size, tool, showMenuBarIcon, recentColors }
 }

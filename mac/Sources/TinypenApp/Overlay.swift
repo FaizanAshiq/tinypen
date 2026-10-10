@@ -150,7 +150,7 @@ final class OverlayView: NSView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let tool = session.markingTool
-        guard session.effect == nil else { return }
+        guard session.effect == nil, !session.closePalette() else { return }
         dragStart = point
         stroke = StrokeBuilder()
         if tool == .pen || tool == .highlighter { stroke.add(point) }

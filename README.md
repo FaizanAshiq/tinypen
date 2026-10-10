@@ -12,7 +12,8 @@ nothing to sign up for and nothing collected.
 | Stop drawing | Esc again | Esc again |
 
 While drawing: P pen, H highlighter, A arrow, R box, L laser, S spotlight, Z zoom, W board,
-1 to 6 colours, [ and ] size, undo with Command Z or Ctrl+Z, Delete clears.
+1 to 6 colours, [ and ] size, undo with Command Z or Ctrl+Z, Delete clears. The toolbar's
+colour button also takes any colour or a hex code, and keeps the last three you picked.
 
 ## Building
 

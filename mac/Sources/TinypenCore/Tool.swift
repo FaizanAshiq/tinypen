@@ -42,6 +42,30 @@ public enum Palette {
     public static let colors = ["#FF3B30", "#FFCC00", "#34C759", "#007AFF", "#FFFFFF", "#000000"]
     public static let names = ["Red", "Yellow", "Green", "Blue", "White", "Black"]
 
+    /// How many custom colours come back beside the six.
+    public static let recentCount = 3
+
+    /// A colour typed as "#RRGGBB", with or without the # and in either case, as "#RRGGBB";
+    /// nil for anything else.
+    public static func hex(typed text: String) -> String? {
+        let digits = text.trimmingCharacters(in: .whitespaces).drop { $0 == "#" }.uppercased()
+        guard digits.count == 6, digits.allSatisfy(\.isHexDigit) else { return nil }
+        return "#" + digits
+    }
+
+    /// sRGB components from the colour panel, each 0 to 1, as "#RRGGBB".
+    public static func hex(red: CGFloat, green: CGFloat, blue: CGFloat) -> String {
+        let byte = { (value: CGFloat) in Int((min(max(value, 0), 1) * 255).rounded()) }
+        return String(format: "#%02X%02X%02X", byte(red), byte(green), byte(blue))
+    }
+
+    /// `recent` with `hex` put first: picked again it moves up rather than showing twice, and one of
+    /// the six is left out, as it is there already.
+    public static func recent(adding hex: String, to recent: [String]) -> [String] {
+        guard let color = Self.hex(typed: hex), !colors.contains(color) else { return recent }
+        return Array(([color] + recent.filter { $0.uppercased() != color }).prefix(recentCount))
+    }
+
     /// The sRGB components of "#RRGGBB", or red for anything else.
     public static func color(_ hex: String, alpha: CGFloat = 1) -> CGColor {
         var digits = Substring(hex)
