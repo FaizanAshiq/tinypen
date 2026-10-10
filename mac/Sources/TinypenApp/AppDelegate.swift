@@ -8,6 +8,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var settings: SettingsWindowController?
     private var statusItem: NSStatusItem?
     private var taken: Set<HotKeyAction> = []
+    /// The hotkeys as last registered, so other changes leave them be.
+    private var registered: HotKeys?
+    private var pendingSave: DispatchWorkItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let url = Preferences.defaultFileURL
@@ -15,7 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let preferences = Preferences.load(from: url)
         session = Session(preferences: preferences)
         hotkeys = HotKeyCenter { [weak self] action in self?.perform(action) }
-        taken = hotkeys.register(preferences.hotkeys)
+        register(preferences.hotkeys)
         session.onPreferences = { [weak self] preferences in self?.changed(preferences) }
         session.onChange = { [weak self] in self?.refreshStatusItem() }
         session.onZoomRefused = { [weak self] in self?.explainZoom() }
@@ -43,10 +46,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// Found reading: every change, each step of a drag in the colour wheel among them, registered
+    /// every hotkey again and wrote the file. Now the hotkeys are registered again only when they
+    /// change, and the file is written a moment after the last change, and at quit.
     private func changed(_ preferences: Preferences) {
-        try? preferences.save(to: Preferences.defaultFileURL)
-        taken = hotkeys.register(preferences.hotkeys)
+        pendingSave?.cancel()
+        let save = DispatchWorkItem { try? preferences.save(to: Preferences.defaultFileURL) }
+        pendingSave = save
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: save)
+        if preferences.hotkeys != registered { register(preferences.hotkeys) }
         refreshStatusItem()
+    }
+
+    private func register(_ keys: HotKeys) {
+        taken = hotkeys.register(keys)
+        registered = keys
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        pendingSave?.perform()
     }
 
     // MARK: Menu bar icon
@@ -143,7 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                                     if recording {
                                                         hotkeys.unregisterAll()
                                                     } else {
-                                                        taken = hotkeys.register(session.preferences.hotkeys)
+                                                        register(session.preferences.hotkeys)
                                                     }
                                                 })
         }

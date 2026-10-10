@@ -63,9 +63,11 @@ public struct ToolbarSpot: Equatable, Sendable, Codable {
     public var x: Double
     public var y: Double
 
+    /// Kept between 0 and 1, and the middle for a number that is none, as from a display with no size
+    /// yet: JSON has no NaN, and one would stop the whole file saving.
     public init(x: Double, y: Double) {
-        self.x = min(max(x, 0), 1)
-        self.y = min(max(y, 0), 1)
+        self.x = x.isFinite ? min(max(x, 0), 1) : 0.5
+        self.y = y.isFinite ? min(max(y, 0), 1) : 0.5
     }
 
     /// The spot of a toolbar dropped at `frame`, in AppKit's coordinates, up from the bottom.

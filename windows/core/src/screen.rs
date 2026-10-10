@@ -76,8 +76,11 @@ impl From<RawSpot> for ToolbarSpot {
 }
 
 impl ToolbarSpot {
+    /// Kept between 0 and 1, and the middle for a number that is none, as from a monitor with no
+    /// size yet, which JSON could not hold.
     pub fn new(x: f32, y: f32) -> ToolbarSpot {
-        ToolbarSpot { x: x.clamp(0.0, 1.0), y: y.clamp(0.0, 1.0) }
+        let fit = |value: f32| if value.is_finite() { value.clamp(0.0, 1.0) } else { 0.5 };
+        ToolbarSpot { x: fit(x), y: fit(y) }
     }
 
     /// The spot of a toolbar dropped at `frame` in `work`, y counting down.
@@ -179,6 +182,14 @@ mod tests {
         let dropped = Rect { x: 300.0, y: 660.0, width: 600.0, height: 40.0 };
         let spot = ToolbarSpot::of(dropped, WORK);
         assert_eq!(ToolbarSpot::frame(600.0, 40.0, WORK, Some(spot), 12.0), dropped);
+    }
+
+    /// A monitor with no size yet gives the middle rather than a spot that cannot be saved.
+    #[test]
+    fn a_monitor_with_no_size_gives_the_middle() {
+        let spot = ToolbarSpot::of(Rect { x: 10.0, y: 10.0, width: 600.0, height: 40.0 }, Rect::default());
+        assert_eq!(spot, ToolbarSpot::new(0.5, 0.5));
+        assert_eq!(ToolbarSpot::new(f32::NAN, f32::INFINITY), ToolbarSpot::new(0.5, 0.5));
     }
 
     #[test]

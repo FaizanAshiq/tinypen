@@ -8,9 +8,10 @@ public struct Canvas: Sendable {
     public private(set) var board: Board?
     private var screen = Marks()
     private var sheet = Marks()
-    /// What Esc erased, so undo brings all of it back, the board open as it was; nil once anything
-    /// else changes.
-    private var erased: (screen: Bool, sheet: Bool, board: Board?)?
+    /// What the last Delete or Esc cleared, so undo brings back exactly that, with the board Esc closed
+    /// open again; nil once anything else changes. Found testing: Delete with nothing showing cleared
+    /// nothing, and undo brought back marks an older Delete had cleared, or took one away.
+    private var cleared: (screen: Bool, sheet: Bool, reopen: Board?)?
 
     public init() {}
 
@@ -27,21 +28,22 @@ public struct Canvas: Sendable {
 
     /// Delete: what shows is cleared, and undo brings it back.
     public mutating func clear() {
-        change { $0.clear() }
+        cleared = (board == nil && !screen.isEmpty, board != nil && !sheet.isEmpty, nil)
+        if board == nil { screen.clear() } else { sheet.clear() }
     }
 
     public mutating func undo() {
-        guard let erased else { return change { $0.undo() } }
-        self.erased = nil
-        if erased.screen { screen.undo() }
-        if erased.sheet { sheet.undo() }
-        board = erased.board
+        guard let cleared else { return change { $0.undo() } }
+        self.cleared = nil
+        if cleared.screen { screen.undo() }
+        if cleared.sheet { sheet.undo() }
+        if let reopen = cleared.reopen { board = reopen }
     }
 
     /// Esc: everything drawn gone, on the screen and on the board, and the board closed. Undo brings
     /// it all back. Reported: undo brought back only the screen's marks, and the board's were lost.
     public mutating func erase() {
-        erased = (!screen.isEmpty, !sheet.isEmpty, board)
+        cleared = (!screen.isEmpty, !sheet.isEmpty, board)
         screen.clear()
         sheet.clear()
         board = nil
@@ -68,7 +70,7 @@ public struct Canvas: Sendable {
     }
 
     private mutating func change(_ change: (inout Marks) -> Void) {
-        erased = nil
+        cleared = nil
         if board == nil { change(&screen) } else { change(&sheet) }
     }
 }

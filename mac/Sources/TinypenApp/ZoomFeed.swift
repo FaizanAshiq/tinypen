@@ -17,17 +17,23 @@ final class ZoomFeed {
     private(set) var frame: IOSurfaceRef?
     /// The display could not be read, most likely as Screen Recording is not allowed.
     var onRefused: (() -> Void)?
+    /// Counts every start and stop, so a capture that finishes opening after either knows it is stale.
+    /// Found reading: zoom off and on again, before the first capture had opened, left both opening
+    /// for the same display, and one ran on unseen, never stopped.
+    private var generation = 0
 
     func start(on displayID: CGDirectDisplayID) {
         guard displayID != self.displayID else { return }
         stop()
         self.displayID = displayID
+        let generation = generation
         Task { [weak self] in
-            await self?.open(displayID)
+            await self?.open(displayID, generation: generation)
         }
     }
 
     func stop() {
+        generation += 1
         if let stream { Task { try? await stream.stopCapture() } }
         stream = nil
         output = nil
@@ -35,14 +41,14 @@ final class ZoomFeed {
         frame = nil
     }
 
-    private func open(_ displayID: CGDirectDisplayID) async {
+    private func open(_ displayID: CGDirectDisplayID, generation: Int) async {
         guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true),
               let display = content.displays.first(where: { $0.displayID == displayID }) else {
-            onRefused?()
+            if self.generation == generation { onRefused?() }
             return
         }
-        // Started for another display meanwhile.
-        guard self.displayID == displayID else { return }
+        // Stopped, or started again, meanwhile.
+        guard self.generation == generation else { return }
         let me = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
         let filter = SCContentFilter(display: display, excludingApplications: me, exceptingWindows: [])
         let scale = NSScreen.screens.first { $0.displayID == displayID }?.backingScaleFactor ?? 2
@@ -58,7 +64,7 @@ final class ZoomFeed {
         let output = FrameOutput { [weak self] frame in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    guard let self, self.displayID == displayID else { return }
+                    guard let self, self.generation == generation else { return }
                     self.frame = frame.surface
                 }
             }
@@ -68,10 +74,10 @@ final class ZoomFeed {
             try stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: DispatchQueue(label: "Tinypen zoom"))
             try await stream.startCapture()
         } catch {
-            onRefused?()
+            if self.generation == generation { onRefused?() }
             return
         }
-        guard self.displayID == displayID else {
+        guard self.generation == generation else {
             try? await stream.stopCapture()
             return
         }

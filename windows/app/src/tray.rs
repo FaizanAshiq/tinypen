@@ -56,6 +56,13 @@ impl Tray {
         data
     }
 
+    /// Explorer restarted and forgot every icon by the clock: added again if it showed. Found reading:
+    /// without this the icon was gone for good after Explorer restarted.
+    pub fn explorer_restarted(&mut self, shown: bool) {
+        self.shown = false;
+        self.set_shown(shown);
+    }
+
     pub fn set_shown(&mut self, shown: bool) {
         if shown == self.shown {
             return;

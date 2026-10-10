@@ -80,6 +80,17 @@ struct ToolbarSpotTests {
         #expect(ToolbarSpot.frame(size: size, in: visible, spot: spot) == dropped)
     }
 
+    /// A display with no size yet, as one being plugged in, gives the middle rather than a spot that
+    /// cannot be saved: JSON has no NaN, and the whole file would stop saving.
+    @Test func aDisplayWithNoSizeGivesTheMiddle() throws {
+        let spot = ToolbarSpot(frame: CGRect(x: 10, y: 10, width: 600, height: 40), in: .zero)
+        #expect(spot == ToolbarSpot(x: 0.5, y: 0.5))
+        #expect(ToolbarSpot(x: .nan, y: .infinity) == ToolbarSpot(x: 0.5, y: 0.5))
+        var preferences = Preferences.defaults
+        preferences.toolbarSpot = spot
+        _ = try JSONEncoder().encode(preferences)
+    }
+
     @Test func itStaysWhollyOnTheDisplayEvenOnASmallerOne() {
         let spot = ToolbarSpot(x: 0.95, y: 0.99)
         let frame = ToolbarSpot.frame(size: size, in: CGRect(x: 1000, y: 0, width: 700, height: 500), spot: spot)

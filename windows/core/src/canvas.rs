@@ -10,12 +10,14 @@ pub enum Board {
     Black,
 }
 
-/// What Esc erased, so undo brings all of it back, the board open as it was.
+/// What the last Delete or Esc cleared, so undo brings back exactly that, with the board Esc closed
+/// open again. Found testing on the Mac: Delete with nothing showing cleared nothing, and undo
+/// brought back marks an older Delete had cleared, or took one away.
 #[derive(Clone, Copy)]
-struct Erased {
+struct Cleared {
     screen: bool,
     sheet: bool,
-    board: Option<Board>,
+    reopen: Option<Board>,
 }
 
 #[derive(Default)]
@@ -23,7 +25,7 @@ pub struct Canvas {
     board: Option<Board>,
     screen: Marks,
     sheet: Marks,
-    erased: Option<Erased>,
+    cleared: Option<Cleared>,
 }
 
 impl Canvas {
@@ -51,25 +53,29 @@ impl Canvas {
 
     /// Delete: what shows is cleared, and undo brings it back.
     pub fn clear(&mut self) {
-        self.change(Marks::clear);
+        let board = self.board.is_some();
+        self.cleared = Some(Cleared { screen: !board && !self.screen.is_empty(), sheet: board && !self.sheet.is_empty(), reopen: None });
+        if board { self.sheet.clear() } else { self.screen.clear() }
     }
 
     pub fn undo(&mut self) {
-        let Some(erased) = self.erased.take() else { return self.change(Marks::undo) };
-        if erased.screen {
+        let Some(cleared) = self.cleared.take() else { return self.change(Marks::undo) };
+        if cleared.screen {
             self.screen.undo();
         }
-        if erased.sheet {
+        if cleared.sheet {
             self.sheet.undo();
         }
-        self.board = erased.board;
+        if let Some(board) = cleared.reopen {
+            self.board = Some(board);
+        }
     }
 
     /// Esc: everything drawn gone, on the screen and on the board, and the board closed. Undo brings
     /// it all back. Reported on the Mac: undo brought back only the screen's marks, and the board's
     /// were lost.
     pub fn erase(&mut self) {
-        self.erased = Some(Erased { screen: !self.screen.is_empty(), sheet: !self.sheet.is_empty(), board: self.board });
+        self.cleared = Some(Cleared { screen: !self.screen.is_empty(), sheet: !self.sheet.is_empty(), reopen: self.board });
         self.screen.clear();
         self.sheet.clear();
         self.board = None;
@@ -96,7 +102,7 @@ impl Canvas {
     }
 
     fn change(&mut self, change: impl FnOnce(&mut Marks)) {
-        self.erased = None;
+        self.cleared = None;
         if self.board.is_none() { change(&mut self.screen) } else { change(&mut self.sheet) }
     }
 }
@@ -160,6 +166,38 @@ mod tests {
         canvas.close_board();
         assert!(canvas.board().is_none() && canvas.is_empty());
         canvas.cycle_board();
+        assert_eq!(canvas.marks(), [mark(1.0)]);
+    }
+
+    /// Found testing on the Mac: Delete with nothing showing cleared nothing, and undo brought back
+    /// marks an older Delete had cleared.
+    #[test]
+    fn undo_after_delete_brings_back_only_what_that_delete_cleared() {
+        let mut canvas = Canvas::default();
+        canvas.cycle_board();
+        canvas.add(mark(1.0));
+        canvas.clear();
+        canvas.cycle_board();
+        canvas.cycle_board();
+        canvas.add(mark(2.0));
+        canvas.cycle_board();
+        canvas.clear();
+        canvas.undo();
+        assert!(canvas.marks().is_empty());
+        canvas.cycle_board();
+        canvas.cycle_board();
+        assert_eq!(canvas.marks(), [mark(2.0)]);
+    }
+
+    #[test]
+    fn undo_after_delete_never_takes_a_mark_away() {
+        let mut canvas = Canvas::default();
+        canvas.add(mark(1.0));
+        canvas.cycle_board();
+        canvas.clear();
+        canvas.cycle_board();
+        canvas.cycle_board();
+        canvas.undo();
         assert_eq!(canvas.marks(), [mark(1.0)]);
     }
 

@@ -106,6 +106,8 @@ struct App {
     picker: Picker,
     lens: Option<LensWindow>,
     tray: Tray,
+    /// The message Explorer sends every window when it starts again, as after a crash.
+    taskbar_created: u32,
     drawing: bool,
     effect: Option<Tool>,
     spotlight_radius: f32,
@@ -153,6 +155,7 @@ impl App {
                 picker,
                 lens: None,
                 tray,
+                taskbar_created: RegisterWindowMessageW(w!("TaskbarCreated")),
                 drawing: false,
                 effect: None,
                 spotlight_radius: Spotlight::RADIUS,
@@ -785,6 +788,7 @@ impl App {
                 _ => {}
             },
             OPENED_AGAIN => system::open_in_notepad(&self.path),
+            created if created == self.taskbar_created => self.tray.explorer_restarted(self.preferences.show_tray_icon),
             REBUILD | WM_DISPLAYCHANGE => self.rebuild_overlays(),
             _ => return None,
         }

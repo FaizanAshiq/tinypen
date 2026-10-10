@@ -60,6 +60,36 @@ struct CanvasTests {
         #expect(canvas.marks == [mark(1)])
     }
 
+    /// Undo after Delete brings back what that Delete cleared and nothing older. Found testing: with
+    /// nothing showing, Delete cleared nothing and undo brought back marks an older Delete had cleared.
+    @Test func undoAfterDeleteBringsBackOnlyWhatThatDeleteCleared() {
+        var canvas = Canvas()
+        canvas.cycleBoard()
+        canvas.add(mark(1))
+        canvas.clear()
+        canvas.cycleBoard()
+        canvas.cycleBoard()
+        canvas.add(mark(2))
+        canvas.cycleBoard()
+        canvas.clear()
+        canvas.undo()
+        #expect(canvas.marks.isEmpty)
+        canvas.cycleBoard()
+        canvas.cycleBoard()
+        #expect(canvas.marks == [mark(2)])
+    }
+
+    @Test func undoAfterDeleteNeverTakesAMarkAway() {
+        var canvas = Canvas()
+        canvas.add(mark(1))
+        canvas.cycleBoard()
+        canvas.clear()
+        canvas.cycleBoard()
+        canvas.cycleBoard()
+        canvas.undo()
+        #expect(canvas.marks == [mark(1)])
+    }
+
     @Test func onlyWhatShowsCounts() {
         var canvas = Canvas()
         #expect(canvas.isEmpty)

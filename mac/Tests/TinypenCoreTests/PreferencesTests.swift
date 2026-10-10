@@ -22,6 +22,28 @@ struct PreferencesTests {
         #expect(HotKeyBinding(keyCode: 36, modifiers: [.command]).menuCharacter == nil)
     }
 
+    /// A hotkey is held in every app. Found testing: Settings took Shift or Command alone, so a Draw
+    /// hotkey of Shift A swallowed every capital A, and Command C every copy.
+    @Test func aHotkeyNeedsControlOrOptionOrCommandWithAnother() {
+        #expect(HotKeyBinding(keyCode: 2, modifiers: [.option, .shift]).isAllowed)
+        #expect(HotKeyBinding(keyCode: 2, modifiers: [.control]).isAllowed)
+        #expect(HotKeyBinding(keyCode: 2, modifiers: [.command, .shift]).isAllowed)
+        #expect(!HotKeyBinding(keyCode: 0, modifiers: [.shift]).isAllowed)
+        #expect(!HotKeyBinding(keyCode: 8, modifiers: [.command]).isAllowed)
+        #expect(!HotKeyBinding(keyCode: 2, modifiers: []).isAllowed)
+    }
+
+    /// One written by hand that every app would lose a key to takes its default instead.
+    @Test func aFileWithAHotkeyNoAppCouldSpareTakesTheDefault() throws {
+        let url = file()
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"hotkeys": {"draw": {"keyCode": 0, "modifiers": ["shift"]}, "laser": {"keyCode": 8, "modifiers": []}}}"#.utf8)
+            .write(to: url)
+        let keys = Preferences.load(from: url).hotkeys
+        #expect(keys.draw == HotKeys.defaults.draw)
+        #expect(keys.laser == HotKeys.defaults.laser)
+    }
+
     @Test func noFileMeansDefaults() {
         #expect(Preferences.load(from: file()) == .defaults)
     }

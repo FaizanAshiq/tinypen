@@ -38,6 +38,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         for action in HotKeyAction.allCases {
             let recorder = HotKeyRecorderView(binding: session.preferences.hotkeys[action])
             recorder.accessibilityName = "\(action.title) hotkey"
+            recorder.toolTip = "Control or Option with a key, or Command with Shift and a key"
             recorder.onRecord = { [weak self] binding in self?.record(binding, for: action) ?? false }
             recorder.onRecordingChange = { [weak self] recording in self?.onRecordingChange(recording) }
             recorder.widthAnchor.constraint(equalToConstant: 200).isActive = true

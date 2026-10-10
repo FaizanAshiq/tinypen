@@ -20,6 +20,13 @@ pub struct HotKey {
 }
 
 impl HotKey {
+    /// A hotkey is held in every app, so it must leave their own keys alone: Alt with a key, or Ctrl
+    /// or Win with another modifier. Ctrl alone would take a copy or a paste, Shift alone a capital.
+    pub fn is_allowed(&self) -> bool {
+        let has = |modifier: u32| self.modifiers & modifier != 0;
+        has(MOD_ALT) || (has(MOD_CONTROL) || has(MOD_WIN)) && self.modifiers.count_ones() > 1
+    }
+
     /// The way Windows writes a shortcut, as Ctrl+Shift+D.
     pub fn display(&self) -> String {
         let mut parts: Vec<String> = Vec::new();
@@ -162,9 +169,11 @@ impl Preferences {
                     None => {}
                     Some(Value::Null) => hotkeys.set(action, None),
                     Some(value) => {
-                        if let Ok(key) = serde_json::from_value::<HotKey>(value.clone()) {
-                            hotkeys.set(action, Some(key));
-                        }
+                        // One every app would lose a key to keeps the default.
+                        if let Ok(key) = serde_json::from_value::<HotKey>(value.clone())
+                            && key.is_allowed() {
+                                hotkeys.set(action, Some(key));
+                            }
                     }
                 }
             }
@@ -298,6 +307,27 @@ mod tests {
         assert_eq!(Preferences::load(&path).toolbar_spot, Some(ToolbarSpot::new(1.0, 0.0)));
         std::fs::write(&path, r#"{"size": 1}"#).unwrap();
         assert_eq!(Preferences::load(&path).toolbar_spot, None);
+    }
+
+    /// A hotkey is held in every app. Ctrl alone would take a copy or a paste, Shift alone a capital.
+    #[test]
+    fn a_hotkey_needs_alt_or_ctrl_or_win_with_another() {
+        let key = |modifiers| HotKey { key_code: 0x44, modifiers };
+        assert!(key(MOD_CONTROL | MOD_SHIFT).is_allowed());
+        assert!(key(MOD_ALT).is_allowed());
+        assert!(key(MOD_WIN | MOD_SHIFT).is_allowed());
+        assert!(!key(MOD_CONTROL).is_allowed());
+        assert!(!key(MOD_SHIFT).is_allowed());
+        assert!(!key(MOD_WIN).is_allowed());
+        assert!(!key(0).is_allowed());
+    }
+
+    #[test]
+    fn a_file_with_a_hotkey_no_app_could_spare_takes_the_default() {
+        let path = file("spare");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, r#"{"hotkeys": {"draw": {"keyCode": 67, "modifiers": 2}}}"#).unwrap();
+        assert_eq!(Preferences::load(&path).hotkeys.draw, HotKeys::DEFAULTS.draw);
     }
 
     #[test]

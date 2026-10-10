@@ -115,13 +115,14 @@ final class HotKeyRecorderView: NSView {
         if event.modifierFlags.contains(.shift) { modifiers.append(.shift) }
         if event.modifierFlags.contains(.command) { modifiers.append(.command) }
 
-        // A hotkey with no modifier is registered system wide, so it would swallow that
-        // key in every other app as well.
-        guard !modifiers.isEmpty else {
+        // A hotkey is registered system wide, so one with no modifier, Shift alone or Command
+        // alone would swallow a key, a capital, a copy or a quit in every other app as well.
+        let binding = HotKeyBinding(keyCode: UInt32(event.keyCode), modifiers: modifiers)
+        guard binding.isAllowed else {
             NSSound.beep()
             return
         }
-        finish(with: HotKeyBinding(keyCode: UInt32(event.keyCode), modifiers: modifiers))
+        finish(with: binding)
     }
 
     private func finish(with binding: HotKeyBinding?) {

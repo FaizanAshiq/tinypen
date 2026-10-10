@@ -17,6 +17,13 @@ public struct HotKeyBinding: Equatable, Sendable, Codable {
         self.modifiers = modifiers
     }
 
+    /// A hotkey is held in every app, so it must leave their own keys alone: Control or Option, or
+    /// Command with another. Shift alone would take a capital letter, Command alone a copy or a quit.
+    public var isAllowed: Bool {
+        let held = Set(modifiers)
+        return held.contains(.control) || held.contains(.option) || held.contains(.command) && held.count > 1
+    }
+
     /// The binding the way macOS prints it in a menu, for example "⌥⇧D", modifiers always in
     /// the system's order whatever order a hand edited file lists them in.
     public var displayString: String {
@@ -109,7 +116,8 @@ public struct HotKeys: Equatable, Sendable, Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         func binding(_ key: CodingKeys, _ fallback: HotKeyBinding?) -> HotKeyBinding? {
             guard container.contains(key) else { return fallback }
-            return (try? container.decodeNil(forKey: key)) == true ? nil : (try? container.decode(HotKeyBinding.self, forKey: key)) ?? fallback
+            guard (try? container.decodeNil(forKey: key)) != true else { return nil }
+            return (try? container.decode(HotKeyBinding.self, forKey: key)).flatMap { $0.isAllowed ? $0 : nil } ?? fallback
         }
         draw = binding(.draw, Self.defaults.draw)
         laser = binding(.laser, Self.defaults.laser)
