@@ -52,7 +52,7 @@ final class Toolbar {
         thicker = ToolButton(symbol: "plus", tip: "Thicker (])") { [unowned self] in session.stepSize(1) }
         undo = ToolButton(symbol: "arrow.uturn.backward", tip: "Undo (⌘Z)") { [unowned self] in session.undo() }
         clear = ToolButton(symbol: "trash", tip: "Clear (Delete)") { [unowned self] in session.clearAll() }
-        let done = ToolButton(symbol: "xmark", tip: "Done, and clear (Esc)") { [unowned self] in session.leave() }
+        let done = ToolButton(symbol: "xmark", tip: "Clear and stop drawing") { [unowned self] in session.leave() }
 
         let row = NSStackView(views: [marking, pointer, colors, group([thinner, thicker]), group([undo, clear]), done])
         row.spacing = 14

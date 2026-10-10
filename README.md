@@ -8,7 +8,8 @@ nothing to sign up for and nothing collected.
 | --- | --- | --- |
 | Start drawing | ⌥⇧D | Ctrl+Shift+D |
 | Stop drawing, marks kept | the same hotkey | the same hotkey |
-| Clear and stop | Esc | Esc |
+| Erase everything | Esc | Esc |
+| Stop drawing | Esc again | Esc again |
 
 While drawing: P pen, H highlighter, A arrow, R box, L laser, S spotlight, Z zoom, W board,
 1 to 6 colours, [ and ] size, undo with Command Z or Ctrl+Z, Delete clears.

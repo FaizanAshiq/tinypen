@@ -265,7 +265,20 @@ impl App {
         }
     }
 
-    /// Esc: every mark and board gone, the effect off, and drawing mode left.
+    /// Esc: the first erases everything on screen and switches the laser, spotlight or zoom off,
+    /// and undo brings the marks back; with nothing left, the next stops drawing.
+    fn escape(&mut self) {
+        if !self.has_marks() && self.effect.is_none() {
+            self.stop_drawing();
+            return;
+        }
+        self.overlays.iter_mut().for_each(Overlay::erase);
+        self.effect = None;
+        self.last_was_clear = true;
+        self.refresh();
+    }
+
+    /// The toolbar's done button: every mark and board gone, the effect off, and drawing mode left.
     fn leave(&mut self) {
         self.overlays.iter_mut().for_each(Overlay::reset);
         self.history.clear();
@@ -599,7 +612,7 @@ impl App {
     fn key(&mut self, key: u16) -> bool {
         let control = unsafe { GetKeyState(VK_CONTROL.0 as i32) } < 0;
         match VIRTUAL_KEY(key) {
-            VK_ESCAPE => self.leave(),
+            VK_ESCAPE => self.escape(),
             VK_DELETE | VK_BACK => self.clear_all(),
             VK_OEM_4 => self.step_size(-1),
             VK_OEM_6 => self.step_size(1),

@@ -113,6 +113,16 @@ final class OverlayView: NSView {
     func undo() { changeMarks { $0.undo() } }
     func clear() { changeMarks { $0.clear() } }
 
+    /// Esc's first press: everything drawn gone, the board too. Undo brings the marks back.
+    func erase() {
+        screenMarks.clear()
+        boardMarks.clear()
+        board = nil
+        boardView.isHidden = true
+        marksView.marks = screenMarks.all
+        liveView.mark = nil
+    }
+
     /// Every mark gone, the board too: the screen as it was.
     func reset() {
         screenMarks = Marks()

@@ -142,6 +142,15 @@ impl Overlay {
         self.change(Marks::clear);
     }
 
+    /// Esc's first press: everything drawn gone, the board too. Undo brings the marks back.
+    pub fn erase(&mut self) {
+        self.screen_marks.clear();
+        self.board_marks.clear();
+        self.board = None;
+        self.live = None;
+        self.cache_dirty = true;
+    }
+
     /// Every mark and the board gone: the screen as it was.
     pub fn reset(&mut self) {
         self.screen_marks = Marks::default();

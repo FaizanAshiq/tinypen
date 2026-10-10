@@ -29,7 +29,7 @@ impl Button {
             Button::Thicker => "Thicker (])".into(),
             Button::Undo => "Undo (Ctrl+Z)".into(),
             Button::Clear => "Clear (Delete)".into(),
-            Button::Done => "Done, and clear (Esc)".into(),
+            Button::Done => "Clear and stop drawing".into(),
         }
     }
 }

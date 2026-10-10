@@ -25,6 +25,8 @@ final class Session {
     private var history: [CGDirectDisplayID] = []
     private var lastWasClear = false
     private var screens: NSObjectProtocol?
+    /// The app in front when drawing started, which gets the keyboard back when it stops.
+    private var previousApp: NSRunningApplication?
 
     var onPreferences: ((Preferences) -> Void)?
     /// Drawing mode, the effect or the marks changed, for the menu.
@@ -79,8 +81,12 @@ final class Session {
         drawing ? stopDrawing() : startDrawing()
     }
 
+    /// Tinypen takes the keyboard while drawing, so Esc and the tool keys reach it and not the app
+    /// in front. Reported: Esc in drawing mode went to the terminal behind the layer instead.
     func startDrawing() {
         drawing = true
+        if let front = NSWorkspace.shared.frontmostApplication, front != NSRunningApplication.current { previousApp = front }
+        NSApp.activate()
         refresh()
         guard let target = overlayUnderPointer else { return }
         target.panel.makeKeyAndOrderFront(nil)
@@ -88,16 +94,31 @@ final class Session {
         toolbar.show(over: target.panel.frame)
     }
 
-    /// The marks stay and every click goes back to the apps under them. The layer that had the
-    /// keys lets them go, so typing reaches the app in front again.
-    func stopDrawing() {
+    /// The marks stay and every click goes back to the apps under them, and the keyboard to the app
+    /// that had it, unless Tinypen is about to show a window of its own.
+    func stopDrawing(returningFocus: Bool = true) {
         drawing = false
         toolbar.hide()
         overlays.filter(\.panel.isKeyWindow).forEach { $0.panel.orderOut(nil) }
         refresh()
+        if returningFocus, let previousApp { previousApp.activate(from: NSRunningApplication.current, options: []) }
+        previousApp = nil
     }
 
-    /// Esc: every mark and board gone, the effect off, and drawing mode left.
+    /// Esc: the first erases everything on screen and switches the laser, spotlight or zoom off, and
+    /// undo brings the marks back; with nothing left, the next stops drawing.
+    func escape() {
+        guard hasMarks || effect != nil else {
+            stopDrawing()
+            return
+        }
+        overlays.forEach { $0.view.erase() }
+        effect = nil
+        lastWasClear = true
+        refresh()
+    }
+
+    /// The toolbar's done button: every mark and board gone, the effect off, and drawing mode left.
     func leave() {
         overlays.forEach { $0.view.reset() }
         history = []
@@ -218,7 +239,7 @@ final class Session {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function])
         switch event.keyCode {
         case 53:
-            leave()
+            escape()
             return true
         case 51, 117:
             clearAll()

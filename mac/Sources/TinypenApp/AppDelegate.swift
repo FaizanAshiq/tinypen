@@ -133,7 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Out of drawing mode first, or the window would open under the layer that takes the clicks.
     @objc func showSettings(_ sender: Any?) {
-        if session.drawing { session.stopDrawing() }
+        if session.drawing { session.stopDrawing(returningFocus: false) }
         if settings == nil {
             settings = SettingsWindowController(session: session, taken: { [weak self] in self?.taken ?? [] },
                                                 onRecordingChange: { [weak self] recording in
@@ -153,7 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// screen stopped taking clicks, with this message and macOS's own prompt both under the layer.
     /// macOS is asked only once the person chooses to, so one message shows at a time.
     private func explainZoom() {
-        session.stopDrawing()
+        session.stopDrawing(returningFocus: false)
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = "Zoom needs Screen Recording"

@@ -53,7 +53,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
         let keys = NSTextField(wrappingLabelWithString: """
             P pen, H highlighter, A arrow, R box, L laser, S spotlight, Z zoom, W board. \
-            1 to 6 colours, [ and ] size, Command Z undo, Delete clears, Esc clears and stops drawing.
+            1 to 6 colours, [ and ] size, Command Z undo, Delete clears. Esc erases everything; Esc again stops drawing.
             """)
         keys.textColor = .secondaryLabelColor
         keys.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
