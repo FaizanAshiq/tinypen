@@ -21,13 +21,18 @@ public struct Screen: Equatable, Sendable {
     public var pickingColor: Bool
     /// Option (Alt on Windows) is held, to size the spotlight or the lens by scrolling.
     public var sizing: Bool
+    /// A scroll came while drawing, and goes on to the app under the drawing until the pointer moves
+    /// or the scrolling pauses.
+    public var passingScroll: Bool
 
-    public init(drawing: Bool, effect: Tool?, hasMarks: Bool = false, pickingColor: Bool = false, sizing: Bool = false) {
+    public init(drawing: Bool, effect: Tool?, hasMarks: Bool = false, pickingColor: Bool = false, sizing: Bool = false,
+                passingScroll: Bool = false) {
         self.drawing = drawing
         self.effect = effect
         self.hasMarks = hasMarks
         self.pickingColor = pickingColor
         self.sizing = sizing
+        self.passingScroll = passingScroll
     }
 
     /// Only a marking tool takes clicks. The laser, the spotlight and the zoom lens let every click
@@ -35,10 +40,11 @@ public struct Screen: Equatable, Sendable {
     /// from their hotkeys they did not.
     public var takesClicks: Bool { drawing && effect == nil }
 
-    /// The layer takes the mouse to draw, or while Option is held over the spotlight or the lens, for
-    /// the scroll that sizes them; let go, and every click and scroll goes to the apps again.
+    /// The layer takes the mouse to draw, except for a moment after a scroll, which goes on to the app
+    /// under the drawing; or while Option is held over the spotlight or the lens, for the scroll that
+    /// sizes them, and let go, every click and scroll goes to the apps again.
     public var takesMouse: Bool {
-        takesClicks || sizing && (effect == .spotlight || effect == .zoom)
+        takesClicks && !passingScroll || sizing && (effect == .spotlight || effect == .zoom)
     }
 
     public var heldKeys: HeldKeys {

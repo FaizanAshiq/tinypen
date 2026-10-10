@@ -27,6 +27,9 @@ pub struct Screen {
     pub picking_color: bool,
     /// Alt (Option on the Mac) is held, to size the spotlight or the lens by scrolling.
     pub sizing: bool,
+    /// A scroll came while drawing, and goes on to the app under the drawing until the pointer moves
+    /// or the scrolling pauses.
+    pub passing_scroll: bool,
 }
 
 impl Screen {
@@ -36,10 +39,11 @@ impl Screen {
         self.drawing && self.effect.is_none()
     }
 
-    /// The layer takes the mouse to draw, or while Alt is held over the spotlight or the lens, for the
-    /// scroll that sizes them; let go, and every click and scroll goes to the apps again.
+    /// The layer takes the mouse to draw, except for a moment after a scroll, which goes on to the app
+    /// under the drawing; or while Alt is held over the spotlight or the lens, for the scroll that sizes
+    /// them, and let go, every click and scroll goes to the apps again.
     pub fn takes_mouse(&self) -> bool {
-        self.takes_clicks() || self.sizing && matches!(self.effect, Some(Tool::Spotlight | Tool::Zoom))
+        self.takes_clicks() && !self.passing_scroll || self.sizing && matches!(self.effect, Some(Tool::Spotlight | Tool::Zoom))
     }
 
     pub fn held_keys(&self) -> HeldKeys {
@@ -136,6 +140,16 @@ mod tests {
         assert!(Screen { sizing: true, ..screen(false, Some(Tool::Spotlight)) }.takes_mouse());
         assert!(Screen { sizing: true, ..screen(true, Some(Tool::Zoom)) }.takes_mouse());
         assert!(!screen(false, Some(Tool::Spotlight)).takes_mouse());
+    }
+
+    /// Reported on the Mac: scrolling did nothing while drawing. A scroll lets the mouse through to the
+    /// app under the drawing for a moment, while the keys stay with Tinypen.
+    #[test]
+    fn a_scroll_while_drawing_lets_the_mouse_through_for_a_moment() {
+        let passing = Screen { passing_scroll: true, ..screen(true, None) };
+        assert!(!passing.takes_mouse());
+        assert_eq!(passing.held_keys(), HeldKeys::All);
+        assert!(screen(true, None).takes_mouse());
     }
 
     /// Alt is everyone's key: with nothing to size, it never stops a click reaching an app.

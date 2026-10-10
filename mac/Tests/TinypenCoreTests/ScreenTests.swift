@@ -34,6 +34,15 @@ struct ScreenTests {
         #expect(!Screen(drawing: false, effect: .spotlight).takesMouse)
     }
 
+    /// Reported: scrolling did nothing while drawing. A scroll lets the mouse through to the app under
+    /// the drawing for a moment, while the keys stay with Tinypen.
+    @Test func aScrollWhileDrawingLetsTheMouseThroughForAMoment() {
+        let passing = Screen(drawing: true, effect: nil, passingScroll: true)
+        #expect(!passing.takesMouse)
+        #expect(passing.heldKeys == .all)
+        #expect(Screen(drawing: true, effect: nil).takesMouse)
+    }
+
     /// Option is everyone's key: with nothing to size, it never stops a click reaching an app.
     @Test func optionAloneTakesNothing() {
         #expect(!Screen(drawing: false, effect: .laser, sizing: true).takesMouse)

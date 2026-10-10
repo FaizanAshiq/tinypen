@@ -16,7 +16,8 @@ While drawing: P pen, H highlighter, A arrow, R box, L laser, S spotlight, Z zoo
 Windows) and scroll to size the spotlight or the zoom lens. The toolbar's colour button also takes any colour or a hex code, and
 keeps the last three you picked. Drag the toolbar by its edge to move it; it stays where you drop it.
 
-Only the pen, highlighter, arrow and box take the mouse. The laser, spotlight and zoom let every
+Only the pen, highlighter, arrow and box take the mouse. Scrolling while drawing scrolls the page
+under the drawing; move the pointer and the next click draws again. The laser, spotlight and zoom let every
 click through to the app underneath, whether switched on by their hotkey or from the toolbar.
 
 ## Building

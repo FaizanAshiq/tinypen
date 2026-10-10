@@ -11,7 +11,7 @@ use crate::toolbar::{Look, Toolbar, TOOLBAR_CLASS};
 use crate::tray::{self, Entry, Tray, TRAY_MESSAGE};
 use std::cell::RefCell;
 use std::path::PathBuf;
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 use tinypen_core::{HeldKeys, HotKeyAction, Lens, Palette, Preferences, Screen, Spotlight, Tool, ToolbarSpot, WIDTHS};
 use windows::core::{w, Result, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HGLOBAL, HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
@@ -37,6 +37,8 @@ const CF_UNICODETEXT: u32 = 13;
 const SETTINGS_CHECK: usize = 2;
 /// The first hotkey id of the keys Tinypen holds while it shows something, after the four actions.
 const HELD: i32 = 100;
+/// Checks, while a scroll goes through to the app under the drawing, whether to take the mouse back.
+const PASS: usize = 3;
 
 thread_local! {
     static APP: RefCell<Option<App>> = const { RefCell::new(None) };
@@ -118,6 +120,12 @@ struct App {
     held: Vec<(HOT_KEY_MODIFIERS, u16)>,
     /// Alt is held, so the spotlight or the lens takes the scroll that sizes it.
     sizing: bool,
+    /// A scroll while drawing goes on to the app under the drawing, from where the pointer was.
+    passing_scroll: bool,
+    passing_from: POINT,
+    passing_last: Instant,
+    /// Until when a scroll is the tail of one already let through.
+    scroll_tail_ends: Instant,
     clock: Instant,
     ticking: bool,
 }
@@ -158,6 +166,10 @@ impl App {
                 taken: Vec::new(),
                 holding: HeldKeys::None,
                 sizing: false,
+                passing_scroll: false,
+                passing_from: POINT::default(),
+                passing_last: Instant::now(),
+                scroll_tail_ends: Instant::now(),
                 held: Vec::new(),
                 clock: Instant::now(),
                 ticking: false,
@@ -260,6 +272,7 @@ impl App {
             has_marks: self.has_marks(),
             picking_color: self.picker.shown,
             sizing: self.sizing,
+            passing_scroll: self.passing_scroll,
         }
     }
 
@@ -318,6 +331,7 @@ impl App {
     fn stop_drawing(&mut self) {
         self.close_picker();
         self.finish_strokes();
+        self.stop_passing_scroll();
         self.drawing = false;
         self.toolbar.hide();
         self.refresh();
@@ -432,6 +446,63 @@ impl App {
 
     fn step_size(&mut self, step: i32) {
         self.pick_size((self.preferences.size as i32 + step).max(0) as usize);
+    }
+
+    /// A scroll reached the layer while drawing. It takes the mouse to draw, and scrolling went nowhere,
+    /// as reported on the Mac. Now the mouse goes through to the app under the drawing, so the page
+    /// scrolls, until the pointer moves to draw again or the scrolling pauses for a second; this scroll
+    /// is handed on to it, so none is lost.
+    fn pass_scroll(&mut self, delta: i16) {
+        let now = Instant::now();
+        // The pointer moved off to draw while a smoothed scroll was still finishing: its tail must not
+        // let the next click through.
+        if now < self.scroll_tail_ends {
+            return;
+        }
+        self.passing_last = now;
+        if !self.passing_scroll {
+            self.passing_scroll = true;
+            unsafe {
+                let _ = GetCursorPos(&mut self.passing_from);
+            }
+            let takes_mouse = self.screen().takes_mouse();
+            self.overlays.iter().for_each(|overlay| overlay.take_clicks(takes_mouse));
+            unsafe {
+                SetTimer(Some(self.window), PASS, 30, None);
+            }
+        }
+        let wheel = INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 { mi: MOUSEINPUT { mouseData: delta as i32 as u32, dwFlags: MOUSEEVENTF_WHEEL, ..Default::default() } },
+        };
+        unsafe {
+            SendInput(&[wheel], size_of::<INPUT>() as i32);
+        }
+    }
+
+    /// Each 30 ms while a scroll goes through: the pointer moved to draw, or a second passed without one.
+    fn check_passing(&mut self) {
+        let mut at = POINT::default();
+        let moved = unsafe { GetCursorPos(&mut at) }.is_ok()
+            && (((at.x - self.passing_from.x).pow(2) + (at.y - self.passing_from.y).pow(2)) as f32).sqrt() > 4.0;
+        if moved {
+            self.scroll_tail_ends = Instant::now() + Duration::from_millis(600);
+        }
+        if moved || self.passing_last.elapsed() >= Duration::from_secs(1) {
+            self.stop_passing_scroll();
+        }
+    }
+
+    fn stop_passing_scroll(&mut self) {
+        if !self.passing_scroll {
+            return;
+        }
+        self.passing_scroll = false;
+        unsafe {
+            let _ = KillTimer(Some(self.window), PASS);
+        }
+        let takes_mouse = self.screen().takes_mouse();
+        self.overlays.iter().for_each(|overlay| overlay.take_clicks(takes_mouse));
     }
 
     /// A scroll with Alt held, in notches: the spotlight grows, the lens zooms.
@@ -714,6 +785,7 @@ impl App {
                 }
             }
             WM_TIMER if wparam.0 == TICK => self.tick(),
+            WM_TIMER if wparam.0 == PASS => self.check_passing(),
             WM_TIMER if wparam.0 == SETTINGS_CHECK => self.reload_if_changed(),
             TRAY_MESSAGE => match lparam.0 as u32 {
                 WM_LBUTTONUP => self.toggle_drawing(),
@@ -836,9 +908,11 @@ impl App {
                 let _ = self.overlays[index].render(&self.graphics, &scene);
                 self.render_toolbar();
             }
-            // Reaches the layer only while Alt is held over the spotlight or the lens.
-            // A notch is 120; a touchpad sends less a message, and no message counts more than one notch,
-            // which keeps a fast spin gentle, as on the Mac.
+            // Reaches the layer while drawing, to go on to the app under the drawing.
+            WM_MOUSEWHEEL if marking => self.pass_scroll((wparam.0 >> 16) as i16),
+            // Or while Alt is held over the spotlight or the lens, to size them. A notch is 120; a
+            // touchpad sends less a message, and no message counts more than one notch, which keeps a
+            // fast spin gentle, as on the Mac.
             WM_MOUSEWHEEL => self.scrolled(((wparam.0 >> 16) as i16 as f32 / 120.0).clamp(-1.0, 1.0)),
             // Alt and a click over the spotlight or the lens leave the app in front where it is.
             WM_MOUSEACTIVATE if !marking => return Some(LRESULT(MA_NOACTIVATE as isize)),
