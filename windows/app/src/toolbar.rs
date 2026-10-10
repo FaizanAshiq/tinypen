@@ -27,7 +27,7 @@ pub struct Look {
     pub color: String,
     /// Index into `WIDTHS`.
     pub size: usize,
-    pub has_marks: bool,
+    pub can_clear: bool,
     pub can_undo: bool,
 }
 
@@ -186,7 +186,7 @@ impl Toolbar {
                 };
                 let enabled = match button {
                     Button::Undo => look.can_undo,
-                    Button::Clear => look.has_marks,
+                    Button::Clear => look.can_clear,
                     _ => true,
                 };
                 let cell = D2D1_ROUNDED_RECT { rect, radiusX: 13.0, radiusY: 13.0 };

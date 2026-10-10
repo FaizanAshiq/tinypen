@@ -107,7 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(item)
         }
         menu.addItem(.separator())
-        let clear = NSMenuItem(title: "Clear Drawings", action: session.hasMarks ? #selector(clearDrawings) : nil, keyEquivalent: "")
+        let clear = NSMenuItem(title: "Clear Drawings", action: session.canClear ? #selector(clearDrawings) : nil, keyEquivalent: "")
         clear.target = self
         menu.addItem(clear)
         menu.addItem(.separator())

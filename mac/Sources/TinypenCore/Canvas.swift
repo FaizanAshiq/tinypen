@@ -9,8 +9,8 @@ public struct Canvas: Sendable {
     private var screen = Marks()
     private var sheet = Marks()
     /// What the last Delete or Esc cleared, so undo brings back exactly that, with the board Esc closed
-    /// open again; nil once anything else changes. Found testing: Delete with nothing showing cleared
-    /// nothing, and undo brought back marks an older Delete had cleared, or took one away.
+    /// open again; nil once undo brought it back or it is for good. Found testing: Delete with nothing
+    /// showing cleared nothing, and undo brought back marks an older Delete had cleared, or took one away.
     private var cleared: (screen: Bool, sheet: Bool, reopen: Board?)?
 
     public init() {}
@@ -23,11 +23,13 @@ public struct Canvas: Sendable {
     public var isEmpty: Bool { board == nil && screen.isEmpty }
 
     public mutating func add(_ mark: Mark) {
+        keepCleared()
         change { $0.add(mark) }
     }
 
     /// Delete: what shows is cleared, and undo brings it back.
     public mutating func clear() {
+        keepCleared()
         cleared = (board == nil && !screen.isEmpty, board != nil && !sheet.isEmpty, nil)
         if board == nil { screen.clear() } else { sheet.clear() }
     }
@@ -43,10 +45,25 @@ public struct Canvas: Sendable {
     /// Esc: everything drawn gone, on the screen and on the board, and the board closed. Undo brings
     /// it all back. Reported: undo brought back only the screen's marks, and the board's were lost.
     public mutating func erase() {
+        keepCleared()
         cleared = (!screen.isEmpty, !sheet.isEmpty, board)
         screen.clear()
         sheet.clear()
         board = nil
+    }
+
+    /// The last Delete or Esc is for good, as something came after it, here or on another display:
+    /// undo no longer brings back what it cleared, on the screen or on the board. Found testing: after
+    /// Esc and a new mark, undo brought back the board marks Esc had erased.
+    public mutating func keepCleared() {
+        cleared = nil
+        screen.keepCleared()
+        sheet.keepCleared()
+    }
+
+    /// How many marks are on the screen, or on the board, showing or not.
+    public func count(onBoard: Bool) -> Int {
+        (onBoard ? sheet : screen).all.count
     }
 
     /// Every mark gone, the board too: the screen as it was.
@@ -70,7 +87,6 @@ public struct Canvas: Sendable {
     }
 
     private mutating func change(_ change: (inout Marks) -> Void) {
-        cleared = nil
         if board == nil { change(&screen) } else { change(&sheet) }
     }
 }

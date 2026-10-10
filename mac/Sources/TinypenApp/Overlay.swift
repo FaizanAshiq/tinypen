@@ -109,6 +109,7 @@ final class OverlayView: NSView {
     func clear() { change { $0.clear() } }
     func cycleBoard() { change { $0.cycleBoard() } }
     func closeBoard() { change { $0.closeBoard() } }
+    func keepCleared() { canvas.keepCleared() }
 
     func erase() {
         change { $0.erase() }

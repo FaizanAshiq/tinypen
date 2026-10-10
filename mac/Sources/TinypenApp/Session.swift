@@ -21,8 +21,13 @@ final class Session {
     private var overlays: [Overlay] = []
     private let zoom = ZoomFeed()
     private lazy var toolbar = Toolbar(session: self)
+    /// Where a mark was drawn: its display, and on the board or not.
+    private struct Turn: Hashable {
+        let display: CGDirectDisplayID
+        let onBoard: Bool
+    }
     /// Where each mark was drawn, in order, so undo takes back the newest one showing, wherever it is.
-    private var history: [(display: CGDirectDisplayID, onBoard: Bool)] = []
+    private var history: [Turn] = []
     private var lastWasClear = false
     /// The colour picker is open, and its hex field may want the keys.
     private var pickingColor = false
@@ -63,6 +68,8 @@ final class Session {
     var zoomDisplay: CGDirectDisplayID? { zoom.displayID }
     var zoomFrame: IOSurfaceRef? { zoom.frame }
     var hasMarks: Bool { overlays.contains { !$0.view.isEmpty } }
+    /// Marks showing for Delete to clear; an empty board has none.
+    var canClear: Bool { overlays.contains { !$0.view.canvas.marks.isEmpty } }
 
     func overlay(for id: CGDirectDisplayID) -> Overlay? {
         overlays.first { $0.displayID == id }
@@ -138,6 +145,7 @@ final class Session {
         if closePalette() { return }
         overlays.forEach { $0.view.finishStroke() }
         guard !hasMarks else {
+            keepCleared()
             overlays.forEach { $0.view.erase() }
             lastWasClear = true
             refresh()
@@ -172,8 +180,11 @@ final class Session {
         refresh()
     }
 
+    /// Delete, with marks showing. With none, as on an empty board, it does nothing, so a second press
+    /// leaves the first one for undo to bring back.
     func clearAll() {
-        guard hasMarks else { return }
+        guard canClear else { return }
+        keepCleared()
         overlays.forEach { $0.view.clear() }
         lastWasClear = true
         refresh()
@@ -199,10 +210,26 @@ final class Session {
     }
 
     func drew(on id: CGDirectDisplayID, onBoard: Bool) {
-        history.append((id, onBoard))
-        lastWasClear = false
+        history.append(Turn(display: id, onBoard: onBoard))
+        keepCleared()
         toolbar.refresh()
         onChange?()
+    }
+
+    /// The last Delete or Esc is for good, as something came after it: no display brings back what it
+    /// cleared, and the turns of the marks it took go, so each turn left is a mark undo can take back.
+    /// Found testing: after Delete and a new mark, Undo stayed on and did nothing once for every mark
+    /// Delete had taken.
+    private func keepCleared() {
+        guard lastWasClear else { return }
+        lastWasClear = false
+        overlays.forEach { $0.view.keepCleared() }
+        var left: [Turn: Int] = [:]
+        history = history.reversed().filter { turn in
+            let marks = left[turn] ?? overlay(for: turn.display)?.view.canvas.count(onBoard: turn.onBoard) ?? 0
+            left[turn] = marks - 1
+            return marks > 0
+        }.reversed()
     }
 
     func cycleBoard() {

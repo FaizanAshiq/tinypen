@@ -90,6 +90,55 @@ struct CanvasTests {
         #expect(canvas.marks == [mark(1)])
     }
 
+    /// Found testing: after Esc and a new mark, undo with the board open brought back the board marks
+    /// Esc had erased, though the screen's stayed gone.
+    @Test func aNewMarkAfterEscKeepsTheBoardsMarksGoneToo() {
+        var canvas = Canvas()
+        canvas.cycleBoard()
+        canvas.add(mark(1))
+        canvas.closeBoard()
+        canvas.add(mark(2))
+        canvas.erase()
+        canvas.add(mark(3))
+        canvas.cycleBoard()
+        canvas.undo()
+        #expect(canvas.marks.isEmpty)
+    }
+
+    /// Undo brings back only the last Delete: one before it is for good.
+    @Test func aSecondDeleteMakesTheFirstForGood() {
+        var canvas = Canvas()
+        canvas.add(mark(1))
+        canvas.clear()
+        canvas.cycleBoard()
+        canvas.clear()
+        canvas.undo()
+        canvas.closeBoard()
+        canvas.undo()
+        #expect(canvas.marks.isEmpty)
+    }
+
+    /// Something new drawn on another display makes a Delete for good here too.
+    @Test func aClearKeptForGoodStaysGone() {
+        var canvas = Canvas()
+        canvas.add(mark(1))
+        canvas.clear()
+        canvas.keepCleared()
+        canvas.undo()
+        #expect(canvas.marks.isEmpty)
+    }
+
+    @Test func marksAreCountedOnTheScreenAndOnTheBoard() {
+        var canvas = Canvas()
+        canvas.add(mark(1))
+        canvas.cycleBoard()
+        canvas.add(mark(2))
+        canvas.add(mark(3))
+        canvas.closeBoard()
+        #expect(canvas.count(onBoard: false) == 1)
+        #expect(canvas.count(onBoard: true) == 2)
+    }
+
     @Test func onlyWhatShowsCounts() {
         var canvas = Canvas()
         #expect(canvas.isEmpty)

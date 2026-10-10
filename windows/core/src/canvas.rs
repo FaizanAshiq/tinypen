@@ -48,11 +48,13 @@ impl Canvas {
     }
 
     pub fn add(&mut self, mark: Mark) {
+        self.keep_cleared();
         self.change(|marks| marks.add(mark));
     }
 
     /// Delete: what shows is cleared, and undo brings it back.
     pub fn clear(&mut self) {
+        self.keep_cleared();
         let board = self.board.is_some();
         self.cleared = Some(Cleared { screen: !board && !self.screen.is_empty(), sheet: board && !self.sheet.is_empty(), reopen: None });
         if board { self.sheet.clear() } else { self.screen.clear() }
@@ -75,10 +77,25 @@ impl Canvas {
     /// it all back. Reported on the Mac: undo brought back only the screen's marks, and the board's
     /// were lost.
     pub fn erase(&mut self) {
+        self.keep_cleared();
         self.cleared = Some(Cleared { screen: !self.screen.is_empty(), sheet: !self.sheet.is_empty(), reopen: self.board });
         self.screen.clear();
         self.sheet.clear();
         self.board = None;
+    }
+
+    /// The last Delete or Esc is for good, as something came after it, here or on another monitor:
+    /// undo no longer brings back what it cleared, on the screen or on the board. Found testing on the
+    /// Mac: after Esc and a new mark, undo brought back the board marks Esc had erased.
+    pub fn keep_cleared(&mut self) {
+        self.cleared = None;
+        self.screen.keep_cleared();
+        self.sheet.keep_cleared();
+    }
+
+    /// How many marks are on the screen, or on the board, showing or not.
+    pub fn count(&self, on_board: bool) -> usize {
+        if on_board { self.sheet.all().len() } else { self.screen.all().len() }
     }
 
     /// Every mark gone, the board too: the screen as it was.
@@ -102,7 +119,6 @@ impl Canvas {
     }
 
     fn change(&mut self, change: impl FnOnce(&mut Marks)) {
-        self.cleared = None;
         if self.board.is_none() { change(&mut self.screen) } else { change(&mut self.sheet) }
     }
 }
@@ -199,6 +215,59 @@ mod tests {
         canvas.cycle_board();
         canvas.undo();
         assert_eq!(canvas.marks(), [mark(1.0)]);
+    }
+
+    /// Found testing on the Mac: after Esc and a new mark, undo with the board open brought back the
+    /// board marks Esc had erased, though the screen's stayed gone.
+    #[test]
+    fn a_new_mark_after_esc_keeps_the_boards_marks_gone_too() {
+        let mut canvas = Canvas::default();
+        canvas.cycle_board();
+        canvas.add(mark(1.0));
+        canvas.close_board();
+        canvas.add(mark(2.0));
+        canvas.erase();
+        canvas.add(mark(3.0));
+        canvas.cycle_board();
+        canvas.undo();
+        assert!(canvas.marks().is_empty());
+    }
+
+    /// Undo brings back only the last Delete: one before it is for good.
+    #[test]
+    fn a_second_delete_makes_the_first_for_good() {
+        let mut canvas = Canvas::default();
+        canvas.add(mark(1.0));
+        canvas.clear();
+        canvas.cycle_board();
+        canvas.clear();
+        canvas.undo();
+        canvas.close_board();
+        canvas.undo();
+        assert!(canvas.marks().is_empty());
+    }
+
+    /// Something new drawn on another monitor makes a Delete for good here too.
+    #[test]
+    fn a_clear_kept_for_good_stays_gone() {
+        let mut canvas = Canvas::default();
+        canvas.add(mark(1.0));
+        canvas.clear();
+        canvas.keep_cleared();
+        canvas.undo();
+        assert!(canvas.marks().is_empty());
+    }
+
+    #[test]
+    fn marks_are_counted_on_the_screen_and_on_the_board() {
+        let mut canvas = Canvas::default();
+        canvas.add(mark(1.0));
+        canvas.cycle_board();
+        canvas.add(mark(2.0));
+        canvas.add(mark(3.0));
+        canvas.close_board();
+        assert_eq!(canvas.count(false), 1);
+        assert_eq!(canvas.count(true), 2);
     }
 
     #[test]

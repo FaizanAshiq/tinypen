@@ -54,6 +54,11 @@ public struct Marks: Sendable {
         all.removeLast()
     }
 
+    /// What the last clear took stays gone: undo no longer brings it back.
+    public mutating func keepCleared() {
+        cleared = nil
+    }
+
     public mutating func clear() {
         guard !all.isEmpty else { return }
         cleared = all

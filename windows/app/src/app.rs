@@ -10,6 +10,7 @@ use crate::system::{self, Monitor};
 use crate::toolbar::{Look, Toolbar, TOOLBAR_CLASS};
 use crate::tray::{self, Entry, Tray, TRAY_MESSAGE};
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Instant, SystemTime};
 use tinypen_core::{HeldKeys, HotKeyAction, Lens, Palette, Preferences, Screen, Spotlight, Tool, ToolbarSpot, WIDTHS};
@@ -353,6 +354,7 @@ impl App {
         }
         self.finish_strokes();
         if self.has_marks() {
+            self.keep_cleared();
             self.overlays.iter_mut().for_each(Overlay::erase);
             self.last_was_clear = true;
             self.refresh();
@@ -364,12 +366,43 @@ impl App {
 
     /// Any stroke still being drawn becomes a mark, as when the button comes up.
     fn finish_strokes(&mut self) {
-        for overlay in &mut self.overlays {
-            if overlay.finish_stroke() {
-                self.history.push((overlay.monitor.handle, overlay.canvas.shows_board()));
-                self.last_was_clear = false;
+        let drawn: Vec<(isize, bool)> = self
+            .overlays
+            .iter_mut()
+            .filter_map(|overlay| overlay.finish_stroke().then(|| (overlay.monitor.handle, overlay.canvas.shows_board())))
+            .collect();
+        drawn.into_iter().for_each(|turn| self.drew(turn));
+    }
+
+    /// A mark was drawn on this monitor, on the board or not.
+    fn drew(&mut self, turn: (isize, bool)) {
+        self.history.push(turn);
+        self.keep_cleared();
+    }
+
+    /// The last Delete or Esc is for good, as something came after it: no monitor brings back what
+    /// it cleared, and the turns of the marks it took go, so each turn left is a mark undo can take
+    /// back. Found testing on the Mac: after Delete and a new mark, Undo stayed on and did nothing
+    /// once for every mark Delete had taken.
+    fn keep_cleared(&mut self) {
+        if !self.last_was_clear {
+            return;
+        }
+        self.last_was_clear = false;
+        self.overlays.iter_mut().for_each(|overlay| overlay.canvas.keep_cleared());
+        let mut left: HashMap<(isize, bool), usize> = HashMap::new();
+        let mut kept: Vec<(isize, bool)> = Vec::new();
+        for &(handle, on_board) in self.history.iter().rev() {
+            let marks = *left.entry((handle, on_board)).or_insert_with(|| {
+                self.overlays.iter().find(|overlay| overlay.monitor.handle == handle).map_or(0, |overlay| overlay.canvas.count(on_board))
+            });
+            if marks > 0 {
+                left.insert((handle, on_board), marks - 1);
+                kept.push((handle, on_board));
             }
         }
+        kept.reverse();
+        self.history = kept;
     }
 
     /// The toolbar's done button: every mark and board gone, the effect off, and drawing mode left.
@@ -397,10 +430,18 @@ impl App {
         self.refresh();
     }
 
+    /// Marks showing for Delete to clear; an empty board has none.
+    fn can_clear(&self) -> bool {
+        self.overlays.iter().any(|overlay| !overlay.canvas.marks().is_empty())
+    }
+
+    /// Delete, with marks showing. With none, as on an empty board, it does nothing, so a second press
+    /// leaves the first one for undo to bring back.
     fn clear_all(&mut self) {
-        if !self.has_marks() {
+        if !self.can_clear() {
             return;
         }
+        self.keep_cleared();
         self.overlays.iter_mut().for_each(Overlay::clear);
         self.last_was_clear = true;
         self.refresh();
@@ -704,7 +745,7 @@ impl App {
             chosen: self.effect.unwrap_or(self.preferences.tool),
             color: self.preferences.color.clone(),
             size: self.preferences.size,
-            has_marks: self.has_marks(),
+            can_clear: self.can_clear(),
             can_undo: self.can_undo(),
         };
         let _ = self.toolbar.render(&self.graphics, &look);
@@ -813,7 +854,7 @@ impl App {
             line(tray::SPOTLIGHT, HotKeyAction::Spotlight, self.effect == Some(Tool::Spotlight)),
             line(tray::ZOOM, HotKeyAction::Zoom, self.effect == Some(Tool::Zoom)),
             None,
-            Some(Entry { command: tray::CLEAR, title: "Clear Drawings".into(), checked: false, enabled: self.has_marks() }),
+            Some(Entry { command: tray::CLEAR, title: "Clear Drawings".into(), checked: false, enabled: self.can_clear() }),
             None,
             Some(Entry { command: tray::OPEN_AT_LOGIN, title: "Open Tinypen when you sign in".into(), checked: system::opens_at_login(), enabled: true }),
             Some(Entry { command: tray::SETTINGS, title: "Edit Settings...".into(), checked: false, enabled: true }),
@@ -897,8 +938,8 @@ impl App {
                 let overlay = &mut self.overlays[index];
                 let at = overlay.local(x, y);
                 if overlay.release(at, tool, shift, &self.preferences) {
-                    self.history.push((overlay.monitor.handle, overlay.canvas.shows_board()));
-                    self.last_was_clear = false;
+                    let turn = (overlay.monitor.handle, overlay.canvas.shows_board());
+                    self.drew(turn);
                 }
                 let scene = self.scene();
                 let _ = self.overlays[index].render(&self.graphics, &scene);

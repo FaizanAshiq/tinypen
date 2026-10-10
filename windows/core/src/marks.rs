@@ -49,6 +49,11 @@ impl Marks {
         self.all.pop();
     }
 
+    /// What the last clear took stays gone: undo no longer brings it back.
+    pub fn keep_cleared(&mut self) {
+        self.cleared = None;
+    }
+
     pub fn clear(&mut self) {
         if self.all.is_empty() {
             return;

@@ -135,7 +135,7 @@ final class Toolbar: NSObject, NSPopoverDelegate {
         picker?.chosen = hex
         for (index, button) in sizeButtons.enumerated() { button.isChosen = index == session.preferences.size }
         undo?.isEnabled = session.canUndo
-        clear?.isEnabled = session.hasMarks
+        clear?.isEnabled = session.canClear
     }
 
     // MARK: Colour
