@@ -2,7 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 import TinypenCore
 
-/// The keys of drawing mode, held as system wide hotkeys while drawing, so they reach Tinypen
+/// The keys Tinypen needs, held as system wide hotkeys while it shows something, so they reach it
 /// whichever app is in front and never that app. Reported: drawing started from the menu bar left
 /// the keyboard with the app in front, which macOS decides and Tinypen cannot, and Esc went to the
 /// terminal behind the drawing. A hotkey reaches Tinypen every time, as the drawing hotkey does.
@@ -17,6 +17,7 @@ final class DrawingKeys {
 
     private var references: [EventHotKeyRef] = []
     private var held: [Key] = []
+    private var holding: HeldKeys = .none
     private var handler: EventHandlerRef?
     private let onKey: (Key) -> Void
 
@@ -43,16 +44,24 @@ final class DrawingKeys {
         }, 1, &spec, context, &handler)
     }
 
-    /// Holds every key of drawing mode, or only Esc while the colour picker's hex field may want
-    /// the rest. A key another app holds already is left to the drawing layer.
-    func hold(onlyEscape: Bool = false) {
+    /// Holds the keys `set` names and lets the rest go. A key another app holds already is left to
+    /// the drawing layer.
+    func hold(_ set: HeldKeys) {
+        guard set != holding else { return }
         release()
+        holding = set
+        let typed: [Character]
+        switch set {
+        case .none: return
+        case .escape: typed = []
+        case .escapeAndSize: typed = ["[", "]"]
+        case .all: typed = Tool.allCases.map(\.key) + ["w", "1", "2", "3", "4", "5", "6", "[", "]"]
+        }
         var keys = [Key(code: UInt16(kVK_Escape), command: false, character: nil)]
-        if !onlyEscape {
+        keys += typed.compactMap { character in Self.code(typing: character).map { Key(code: $0, command: false, character: character) } }
+        if set == .all {
             keys += [Key(code: UInt16(kVK_Delete), command: false, character: nil),
                      Key(code: UInt16(kVK_ForwardDelete), command: false, character: nil)]
-            let typed = Tool.allCases.map(\.key) + ["w", "1", "2", "3", "4", "5", "6", "[", "]"]
-            keys += typed.compactMap { character in Self.code(typing: character).map { Key(code: $0, command: false, character: character) } }
             if let z = Self.code(typing: "z") { keys.append(Key(code: z, command: true, character: "z")) }
         }
         for key in keys {
@@ -70,6 +79,7 @@ final class DrawingKeys {
         references.forEach { UnregisterEventHotKey($0) }
         references.removeAll()
         held.removeAll()
+        holding = .none
     }
 
     /// The key that types `character` on the keyboard layout in use, so a French or German

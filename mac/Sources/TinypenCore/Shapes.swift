@@ -125,9 +125,9 @@ public enum Lens {
     public static let radius: CGFloat = 120
     public static let range: ClosedRange<CGFloat> = 1.5...6
 
-    /// The magnification after a scroll of `delta` points, about 1.15 times per notch.
-    public static func magnification(_ current: CGFloat, scrolled delta: CGFloat) -> CGFloat {
-        min(range.upperBound, max(range.lowerBound, current * pow(1.15, delta)))
+    /// The magnification after `steps` presses of ] (or [ for fewer), about 1.15 times a step.
+    public static func magnification(_ current: CGFloat, stepped steps: CGFloat) -> CGFloat {
+        min(range.upperBound, max(range.lowerBound, current * pow(1.15, steps)))
     }
 
     /// The part of the screen the lens shows, centred on the pointer.
@@ -142,7 +142,8 @@ public enum Spotlight {
     public static let radius: CGFloat = 140
     public static let range: ClosedRange<CGFloat> = 60...600
 
-    public static func radius(_ current: CGFloat, scrolled delta: CGFloat) -> CGFloat {
+    /// The radius after growing or shrinking by `delta` points.
+    public static func radius(_ current: CGFloat, stepped delta: CGFloat) -> CGFloat {
         min(range.upperBound, max(range.lowerBound, current + delta))
     }
 }

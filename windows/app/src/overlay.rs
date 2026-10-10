@@ -92,12 +92,12 @@ impl Overlay {
         }
     }
 
-    /// Takes the mouse and the keys while drawing; otherwise every click goes through.
-    pub fn set_drawing(&self, drawing: bool) {
+    /// Takes the mouse and the keys while a marking tool is in hand; otherwise every click goes through.
+    pub fn take_clicks(&self, takes: bool) {
         unsafe {
             let style = GetWindowLongPtrW(self.hwnd, GWL_EXSTYLE);
             let through = (WS_EX_TRANSPARENT | WS_EX_NOACTIVATE).0 as isize;
-            let changed = if drawing { style & !through } else { style | through };
+            let changed = if takes { style & !through } else { style | through };
             if changed != style {
                 SetWindowLongPtrW(self.hwnd, GWL_EXSTYLE, changed);
                 let _ = SetWindowPos(self.hwnd, None, 0, 0, 0, 0,

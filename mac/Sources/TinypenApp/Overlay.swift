@@ -196,11 +196,6 @@ final class OverlayView: NSView {
         }
     }
 
-    override func scrollWheel(with event: NSEvent) {
-        // A trackpad reports points, a wheel whole notches.
-        session.scrolled(event.hasPreciseScrollingDeltas ? event.scrollingDeltaY / 10 : event.scrollingDeltaY)
-    }
-
     override func keyDown(with event: NSEvent) {
         if !session.handleKey(event) { super.keyDown(with: event) }
     }

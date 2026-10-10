@@ -4,9 +4,11 @@
 mod geometry;
 mod marks;
 mod preferences;
+mod screen;
 mod tool;
 
 pub use geometry::{arrow_outline, smooth, Lens, LaserTrail, Point, Rect, Spotlight};
 pub use marks::{Drag, Mark, MarkKind, Marks, StrokeBuilder};
+pub use screen::{HeldKeys, Screen};
 pub use preferences::{HotKey, HotKeyAction, HotKeys, Preferences, MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN};
 pub use tool::{highlighter_width, Palette, Tool, WIDTHS};

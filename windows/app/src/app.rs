@@ -12,7 +12,7 @@ use crate::tray::{self, Entry, Tray, TRAY_MESSAGE};
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::time::{Instant, SystemTime};
-use tinypen_core::{HotKeyAction, Lens, Palette, Preferences, Spotlight, Tool, WIDTHS};
+use tinypen_core::{HeldKeys, HotKeyAction, Lens, Palette, Preferences, Screen, Spotlight, Tool, WIDTHS};
 use windows::core::{w, Result, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HGLOBAL, HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::System::DataExchange::{CloseClipboard, GetClipboardData, OpenClipboard};
@@ -35,6 +35,8 @@ const MK_LBUTTON: usize = 0x1;
 const MK_SHIFT: usize = 0x4;
 const CF_UNICODETEXT: u32 = 13;
 const SETTINGS_CHECK: usize = 2;
+/// The first hotkey id of the keys Tinypen holds while it shows something, after the four actions.
+const HELD: i32 = 100;
 
 thread_local! {
     static APP: RefCell<Option<App>> = const { RefCell::new(None) };
@@ -111,6 +113,9 @@ struct App {
     last_was_clear: bool,
     previous: Option<HWND>,
     taken: Vec<HotKeyAction>,
+    /// The keys held as hotkeys now, and each one's modifiers and virtual key, by id from `HELD`.
+    holding: HeldKeys,
+    held: Vec<(HOT_KEY_MODIFIERS, u16)>,
     clock: Instant,
     ticking: bool,
 }
@@ -149,6 +154,8 @@ impl App {
                 last_was_clear: false,
                 previous: None,
                 taken: Vec::new(),
+                holding: HeldKeys::None,
+                held: Vec::new(),
                 clock: Instant::now(),
                 ticking: false,
             };
@@ -240,7 +247,47 @@ impl App {
     // Modes
 
     fn toggle_drawing(&mut self) {
-        if self.drawing { self.stop_drawing(true) } else { self.start_drawing() }
+        if self.drawing { self.stop_drawing() } else { self.start_drawing() }
+    }
+
+    fn screen(&self) -> Screen {
+        Screen { drawing: self.drawing, effect: self.effect, has_marks: self.has_marks(), picking_color: self.picker.shown }
+    }
+
+    /// Holds the keys Tinypen needs as hotkeys while it shows something, so they reach it whichever
+    /// app is in front and never that app, as the Mac app does; lets them go when it shows nothing.
+    fn hold_keys(&mut self) {
+        let holding = self.screen().held_keys();
+        if holding == self.holding {
+            return;
+        }
+        for id in 0..self.held.len() {
+            unsafe {
+                let _ = UnregisterHotKey(Some(self.window), HELD + id as i32);
+            }
+        }
+        let none = HOT_KEY_MODIFIERS(0);
+        let mut keys = Vec::new();
+        if holding != HeldKeys::None {
+            keys.push((none, VK_ESCAPE.0));
+        }
+        if matches!(holding, HeldKeys::EscapeAndSize | HeldKeys::All) {
+            keys.extend([(none, VK_OEM_4.0), (none, VK_OEM_6.0)]);
+        }
+        if holding == HeldKeys::All {
+            keys.extend([(none, VK_DELETE.0), (none, VK_BACK.0), (MOD_CONTROL, 0x5A), (none, 0x57)]);
+            keys.extend(Tool::ALL.iter().map(|tool| (none, tool.key().to_ascii_uppercase() as u16)));
+            keys.extend((0x31..=0x36).map(|code| (none, code)));
+        }
+        self.held.clear();
+        for (modifiers, key) in keys {
+            let id = HELD + self.held.len() as i32;
+            // A key another app holds already is left to the drawing layer.
+            if unsafe { RegisterHotKey(Some(self.window), id, modifiers, key as u32) }.is_ok() {
+                self.held.push((modifiers, key));
+            }
+        }
+        self.holding = holding;
     }
 
     fn start_drawing(&mut self) {
@@ -260,21 +307,20 @@ impl App {
     }
 
     /// The marks stay and every click goes back to the apps under them, and the keys to the app
-    /// that had them, unless another app has taken them already.
-    fn stop_drawing(&mut self, returning_focus: bool) {
+    /// that had them.
+    fn stop_drawing(&mut self) {
         self.close_picker();
         self.finish_strokes();
         self.drawing = false;
         self.toolbar.hide();
         self.refresh();
-        if let Some(previous) = self.previous.take()
-            && returning_focus {
-                unsafe {
-                    if IsWindow(Some(previous)).as_bool() {
-                        let _ = SetForegroundWindow(previous);
-                    }
+        if let Some(previous) = self.previous.take() {
+            unsafe {
+                if IsWindow(Some(previous)).as_bool() {
+                    let _ = SetForegroundWindow(previous);
                 }
             }
+        }
     }
 
     /// Esc: the first erases everything on screen and switches the laser, spotlight or zoom off,
@@ -286,7 +332,7 @@ impl App {
         }
         self.finish_strokes();
         if !self.has_marks() && self.effect.is_none() {
-            self.stop_drawing(true);
+            self.stop_drawing();
             return;
         }
         self.overlays.iter_mut().for_each(Overlay::erase);
@@ -311,7 +357,7 @@ impl App {
         self.history.clear();
         self.last_was_clear = false;
         self.effect = None;
-        self.stop_drawing(true);
+        self.stop_drawing();
     }
 
     fn toggle_effect(&mut self, tool: Tool) {
@@ -376,8 +422,15 @@ impl App {
         self.render_toolbar();
     }
 
+    /// [ and ]: while the spotlight or the lens is on, the spotlight grows by 20 pixels a step and the
+    /// lens zooms, as the wheel did before the wheel reached the app under them; otherwise the pen.
     fn step_size(&mut self, step: i32) {
-        self.pick_size((self.preferences.size as i32 + step).max(0) as usize);
+        match self.effect {
+            Some(Tool::Spotlight) => self.spotlight_radius = Spotlight::radius(self.spotlight_radius, step as f32 * 20.0),
+            Some(Tool::Zoom) => self.magnification = Lens::magnification(self.magnification, step as f32),
+            _ => return self.pick_size((self.preferences.size as i32 + step).max(0) as usize),
+        }
+        self.tick();
     }
 
     // The colour picker
@@ -389,6 +442,8 @@ impl App {
         }
         let Some((button, scale)) = self.toolbar.color_button() else { return };
         if self.picker.show(&self.graphics, button, scale, &self.preferences.recent_colors).is_ok() {
+            // The hex field may want the keys, so only Esc stays held, to put the picker away.
+            self.hold_keys();
             self.render_toolbar();
         }
     }
@@ -399,6 +454,7 @@ impl App {
             return;
         }
         self.picker.hide();
+        self.hold_keys();
         let recent = Palette::recent(&self.preferences.color, &self.preferences.recent_colors);
         if recent != self.preferences.recent_colors {
             self.preferences.recent_colors = recent;
@@ -499,21 +555,14 @@ impl App {
         Some(LRESULT(0))
     }
 
-    /// A scroll, in wheel notches: the spotlight grows by 20 pixels a notch, the lens zooms.
-    fn scrolled(&mut self, notches: f32) {
-        match self.effect {
-            Some(Tool::Spotlight) => self.spotlight_radius = Spotlight::radius(self.spotlight_radius, notches * 20.0),
-            Some(Tool::Zoom) => self.magnification = Lens::magnification(self.magnification, notches),
-            _ => return,
-        }
-        self.tick();
-    }
-
-    /// Every layer shown or hidden, taking the mouse or not, as the mode now says, and drawn.
+    /// Every layer shown or hidden, taking the mouse or not, and the keys held, as the mode now says,
+    /// and drawn.
     fn refresh(&mut self) {
         let visible = self.drawing || self.effect.is_some() || self.has_marks();
+        let takes_clicks = self.screen().takes_clicks();
+        self.hold_keys();
         for overlay in &mut self.overlays {
-            overlay.set_drawing(self.drawing);
+            overlay.take_clicks(takes_clicks);
             overlay.show(visible);
         }
         if self.drawing {
@@ -602,11 +651,6 @@ impl App {
     // Input
 
     fn handle(&mut self, window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
-        // Another app took the keys mid drawing, by Alt+Tab or a window of its own, so the layer
-        // stops taking clicks too, the marks kept, as the Mac app does.
-        if message == WM_ACTIVATEAPP && wparam.0 == 0 && self.drawing {
-            self.stop_drawing(false);
-        }
         if window == self.window {
             return self.handle_app(message, wparam, lparam);
         }
@@ -622,6 +666,11 @@ impl App {
 
     fn handle_app(&mut self, message: u32, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
         match message {
+            WM_HOTKEY if wparam.0 >= HELD as usize => {
+                if let Some(&(_, key)) = self.held.get(wparam.0 - HELD as usize) {
+                    self.key(key);
+                }
+            }
             WM_HOTKEY => {
                 self.reload_if_changed();
                 match HotKeyAction::ALL.get(wparam.0.wrapping_sub(1)) {
@@ -751,7 +800,6 @@ impl App {
                 let _ = self.overlays[index].render(&self.graphics, &scene);
                 self.render_toolbar();
             }
-            WM_MOUSEWHEEL => self.scrolled((wparam.0 >> 16) as i16 as f32 / 120.0),
             WM_DPICHANGED | WM_DISPLAYCHANGE => unsafe {
                 let _ = PostMessageW(Some(self.window), REBUILD, WPARAM(0), LPARAM(0));
             },

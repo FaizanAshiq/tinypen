@@ -180,9 +180,9 @@ impl Lens {
     pub const MIN: f32 = 1.5;
     pub const MAX: f32 = 6.0;
 
-    /// The magnification after a scroll of `notches`, about 1.15 times per notch.
-    pub fn magnification(current: f32, notches: f32) -> f32 {
-        (current * 1.15_f32.powf(notches)).clamp(Self::MIN, Self::MAX)
+    /// The magnification after `steps` presses of ] (or [ for fewer), about 1.15 times a step.
+    pub fn magnification(current: f32, steps: f32) -> f32 {
+        (current * 1.15_f32.powf(steps)).clamp(Self::MIN, Self::MAX)
     }
 
     /// The part of the screen the lens shows, centred on the pointer.

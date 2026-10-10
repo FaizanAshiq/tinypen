@@ -1,9 +1,9 @@
 import AppKit
 import TinypenCore
 
-/// Drawing mode, the tool in hand, the pointer effect and every display's layer. In drawing mode
-/// the layers take the mouse and the keys; out of it they show what was drawn and pass every
-/// click through.
+/// Drawing mode, the tool in hand, the pointer effect and every display's layer. With a marking
+/// tool in hand the layers take the mouse; otherwise they show what was drawn and the laser,
+/// spotlight or lens, and pass every click through.
 @MainActor
 final class Session {
     private(set) var drawing = false
@@ -24,6 +24,8 @@ final class Session {
     /// The displays drawn on, in order, so undo takes back the newest mark wherever it is.
     private var history: [CGDirectDisplayID] = []
     private var lastWasClear = false
+    /// The colour picker is open, and its hex field may want the keys.
+    private var pickingColor = false
     private var screens: NSObjectProtocol?
     private lazy var keys = DrawingKeys { [unowned self] key in
         _ = handleKey(code: key.code, command: key.command, character: key.character)
@@ -86,12 +88,11 @@ final class Session {
         drawing ? stopDrawing() : startDrawing()
     }
 
-    /// Esc and the tool keys are held while drawing, so they reach Tinypen and not the app in front.
-    /// Tinypen asks for the keyboard too, which macOS may refuse, for the colour picker's hex field.
-    /// Reported: Esc in drawing mode went to the terminal behind the layer instead.
+    /// Esc and the tool keys are held while drawing (refresh does it), so they reach Tinypen and not
+    /// the app in front. Tinypen asks for the keyboard too, which macOS may refuse, for the colour
+    /// picker's hex field. Reported: Esc in drawing mode went to the terminal behind the layer instead.
     func startDrawing() {
         drawing = true
-        keys.hold()
         if let front = NSWorkspace.shared.frontmostApplication, front != NSRunningApplication.current { previousApp = front }
         NSApp.activate()
         refresh()
@@ -113,7 +114,6 @@ final class Session {
     func stopDrawing(returningFocus: Bool = true) {
         overlays.forEach { $0.view.finishStroke() }
         drawing = false
-        keys.release()
         toolbar.hide()
         overlays.filter(\.panel.isKeyWindow).forEach { $0.panel.orderOut(nil) }
         refresh()
@@ -203,14 +203,15 @@ final class Session {
 
     /// The hex field may want the keys, so only Esc stays held, to put the picker away.
     func paletteOpened() {
-        keys.hold(onlyEscape: true)
+        pickingColor = true
+        holdKeys()
     }
 
     /// A custom colour picked is kept beside the six, and the keys go back to the drawing layer.
     func paletteClosed() {
+        pickingColor = false
         preferences.recentColors = Palette.recent(adding: preferences.colorHex, to: preferences.recentColors)
-        guard drawing else { return }
-        keys.hold()
+        holdKeys()
         takeKeys()
     }
 
@@ -218,16 +219,13 @@ final class Session {
         preferences.size = min(max(size, 0), Sizes.widths.count - 1)
     }
 
+    /// [ and ]: while the spotlight or the lens is on, the spotlight grows by 20 points a step and the
+    /// lens zooms, as scrolling did before scrolling reached the app under them; otherwise the pen.
     func stepSize(_ step: Int) {
-        pickSize(preferences.size + step)
-    }
-
-    /// A scroll, in wheel notches: the spotlight grows by 20 points a notch, the lens zooms.
-    func scrolled(_ notches: CGFloat) {
         switch effect {
-        case .spotlight: spotlightRadius = Spotlight.radius(spotlightRadius, scrolled: notches * 20)
-        case .zoom: magnification = Lens.magnification(magnification, scrolled: notches)
-        default: return
+        case .spotlight: spotlightRadius = Spotlight.radius(spotlightRadius, stepped: CGFloat(step) * 20)
+        case .zoom: magnification = Lens.magnification(magnification, stepped: CGFloat(step))
+        default: return pickSize(preferences.size + step)
         }
         overlays.forEach { $0.view.effects.needsDisplay = true }
     }
@@ -252,11 +250,20 @@ final class Session {
         onZoomRefused?()
     }
 
-    /// Every layer shown or hidden, taking the mouse or not, as the mode now says.
+    private var screen: Screen {
+        Screen(drawing: drawing, effect: effect, hasMarks: hasMarks, pickingColor: pickingColor)
+    }
+
+    private func holdKeys() {
+        keys.hold(screen.heldKeys)
+    }
+
+    /// Every layer shown or hidden, taking the mouse or not, and the keys held, as the mode now says.
     func refresh() {
         let visible = drawing || effect != nil || hasMarks
+        holdKeys()
         for overlay in overlays {
-            overlay.panel.ignoresMouseEvents = !drawing
+            overlay.panel.ignoresMouseEvents = !screen.takesClicks
             if visible {
                 overlay.panel.orderFrontRegardless()
             } else {

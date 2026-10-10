@@ -184,10 +184,10 @@ struct LaserTests {
 
 struct LensTests {
     @Test func zoomStaysBetweenOneAndAHalfAndSix() {
-        #expect(Lens.magnification(2, scrolled: 100) == 6)
-        #expect(Lens.magnification(2, scrolled: -100) == 1.5)
-        #expect(Lens.magnification(2, scrolled: 0) == 2)
-        #expect(Lens.magnification(2, scrolled: 1) > 2)
+        #expect(Lens.magnification(2, stepped: 100) == 6)
+        #expect(Lens.magnification(2, stepped: -100) == 1.5)
+        #expect(Lens.magnification(2, stepped: 0) == 2)
+        #expect(Lens.magnification(2, stepped: 1) > 2)
     }
 
     /// At 2x a 120 point lens shows the 120 point square round the pointer.
@@ -197,8 +197,8 @@ struct LensTests {
     }
 
     @Test func spotlightStaysBetween60And600Points() {
-        #expect(Spotlight.radius(140, scrolled: 1000) == 600)
-        #expect(Spotlight.radius(140, scrolled: -1000) == 60)
-        #expect(Spotlight.radius(140, scrolled: 10) == 150)
+        #expect(Spotlight.radius(140, stepped: 1000) == 600)
+        #expect(Spotlight.radius(140, stepped: -1000) == 60)
+        #expect(Spotlight.radius(140, stepped: 10) == 150)
     }
 }
