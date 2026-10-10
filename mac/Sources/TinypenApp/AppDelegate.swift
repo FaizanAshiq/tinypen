@@ -114,7 +114,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         session.clearAll()
     }
 
+    /// Out of drawing mode first, or the window would open under the layer that takes the clicks.
     @objc func showSettings(_ sender: Any?) {
+        if session.drawing { session.stopDrawing() }
         if settings == nil {
             settings = SettingsWindowController(session: session, taken: { [weak self] in self?.taken ?? [] },
                                                 onRecordingChange: { [weak self] recording in
@@ -129,9 +131,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settings?.show()
     }
 
-    /// Zoom reads the screen, which macOS asks about once. Asked here, after the first try.
+    /// Zoom reads the screen, which macOS asks about. Drawing mode is left first: its layer takes
+    /// every click, and the message would sit under it out of the mouse's reach. Reported: the
+    /// screen stopped taking clicks, with this message and macOS's own prompt both under the layer.
+    /// macOS is asked only once the person chooses to, so one message shows at a time.
     private func explainZoom() {
-        ScreenAccess.request()
+        session.stopDrawing()
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = "Zoom needs Screen Recording"
@@ -139,6 +144,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             + "open Tinypen again. Nothing else in Tinypen needs it, and nothing it sees leaves your Mac."
         alert.addButton(withTitle: "Open System Settings")
         alert.addButton(withTitle: "Not Now")
-        if alert.runModal() == .alertFirstButtonReturn { ScreenAccess.openSettings() }
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        // Asking puts Tinypen in the Screen Recording list, where it can be switched on.
+        ScreenAccess.request()
+        ScreenAccess.openSettings()
     }
 }
