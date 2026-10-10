@@ -99,7 +99,7 @@ dependencies = [
 
 [[package]]
 name = "tinypen"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "tinypen-core",
  "windows",
@@ -108,7 +108,7 @@ dependencies = [
 
 [[package]]
 name = "tinypen-core"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "serde",
  "serde_json",
