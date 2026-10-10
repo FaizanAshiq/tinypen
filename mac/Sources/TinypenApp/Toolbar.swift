@@ -6,7 +6,7 @@ import TinypenCore
 @MainActor
 final class Toolbar: NSObject, NSPopoverDelegate {
     private unowned let session: Session
-    private let panel: NSPanel
+    private let panel: ToolbarPanel
     private var toolButtons: [Tool: ToolButton] = [:]
     private var colorButton: ColorButton!
     private var sizeButtons: [ToolButton] = []
@@ -17,8 +17,13 @@ final class Toolbar: NSObject, NSPopoverDelegate {
 
     init(session: Session) {
         self.session = session
-        panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel = ToolbarPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         super.init()
+        // Any other button puts the colour picker away, as a click on the drawing layer does.
+        panel.onMouseDown = { [unowned self] event in
+            guard panel.contentView?.hitTest(event.locationInWindow) !== colorButton else { return }
+            _ = closePalette()
+        }
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         panel.isOpaque = false
@@ -178,6 +183,16 @@ final class Toolbar: NSObject, NSPopoverDelegate {
         }
         image.isTemplate = true
         return image
+    }
+}
+
+/// The toolbar's panel, which says when a click lands on it before the button under it acts.
+final class ToolbarPanel: NSPanel {
+    var onMouseDown: ((NSEvent) -> Void)?
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown { onMouseDown?(event) }
+        super.sendEvent(event)
     }
 }
 

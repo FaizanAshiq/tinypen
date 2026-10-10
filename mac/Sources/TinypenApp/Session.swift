@@ -128,6 +128,8 @@ final class Session {
     /// Esc: the first erases everything on screen and switches the laser, spotlight or zoom off, and
     /// undo brings the marks back; with nothing left, the next stops drawing.
     func escape() {
+        // An open colour picker goes first, as Esc puts away anything open.
+        if closePalette() { return }
         guard hasMarks || effect != nil else {
             stopDrawing()
             return
