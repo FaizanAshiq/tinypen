@@ -1,0 +1,9 @@
+[package]
+name = "tinypen"
+description = "Draw on the live screen while you present"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tinypen-core = { path = "../core" }
