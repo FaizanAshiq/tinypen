@@ -121,20 +121,20 @@ final class Session {
         previousApp = nil
     }
 
-    /// Esc: the first erases everything on screen and switches the laser, spotlight or zoom off, and
-    /// undo brings the marks back; with nothing left, the next stops drawing.
+    /// Esc: with anything drawn, it erases it all, whatever tool is in hand, and undo brings it back;
+    /// with nothing drawn, it switches every tool off: the laser, spotlight or lens, and drawing mode.
+    /// An open colour picker goes first, as Esc puts away anything open.
     func escape() {
-        // An open colour picker goes first, as Esc puts away anything open.
         if closePalette() { return }
         overlays.forEach { $0.view.finishStroke() }
-        guard hasMarks || effect != nil else {
-            stopDrawing()
+        guard !hasMarks else {
+            overlays.forEach { $0.view.erase() }
+            lastWasClear = true
+            refresh()
             return
         }
-        overlays.forEach { $0.view.erase() }
         effect = nil
-        lastWasClear = true
-        refresh()
+        drawing ? stopDrawing() : refresh()
     }
 
     /// The toolbar's done button: every mark and board gone, the effect off, and drawing mode left.

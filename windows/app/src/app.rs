@@ -323,22 +323,23 @@ impl App {
         }
     }
 
-    /// Esc: the first erases everything on screen and switches the laser, spotlight or zoom off,
-    /// and undo brings the marks back; with nothing left, the next stops drawing.
+    /// Esc: with anything drawn, it erases it all, whatever tool is in hand, and undo brings it back;
+    /// with nothing drawn, it switches every tool off: the laser, spotlight or lens, and drawing mode.
+    /// An open colour picker goes first, as Esc puts away anything open.
     fn escape(&mut self) {
         if self.picker.shown {
             self.close_picker();
             return;
         }
         self.finish_strokes();
-        if !self.has_marks() && self.effect.is_none() {
-            self.stop_drawing();
+        if self.has_marks() {
+            self.overlays.iter_mut().for_each(Overlay::erase);
+            self.last_was_clear = true;
+            self.refresh();
             return;
         }
-        self.overlays.iter_mut().for_each(Overlay::erase);
         self.effect = None;
-        self.last_was_clear = true;
-        self.refresh();
+        if self.drawing { self.stop_drawing() } else { self.refresh() }
     }
 
     /// Any stroke still being drawn becomes a mark, as when the button comes up.
