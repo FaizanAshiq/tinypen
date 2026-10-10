@@ -46,6 +46,24 @@ jobs:
           name: Tinypen-win-${{ matrix.arch }}
           path: Tinypen-win-${{ matrix.arch }}.exe
           retention-days: 14
+      # The same app one version on, for the e2e run to update to.
+      - name: Next version
+        if: matrix.arch == 'x64'
+        shell: bash
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          next=$(echo "$version" | awk -F. '{print $1"."$2"."$3+1}')
+          sed -i "0,/^version = \"$version\"$/s//version = \"$next\"/" Cargo.toml
+          cargo build --release -p tinypen --target ${{ matrix.target }}
+          mkdir -p ../next
+          cp target/${{ matrix.target }}/release/tinypen.exe ../next/Tinypen-win-x64.exe
+          echo "$next" > ../next/version
+      - uses: actions/upload-artifact@v7
+        if: matrix.arch == 'x64'
+        with:
+          name: Tinypen-win-x64-next
+          path: next/*
+          retention-days: 14
 
   # The x64 build run on a real Windows desktop and driven as a person would.
   e2e:
@@ -58,9 +76,13 @@ jobs:
         with:
           name: Tinypen-win-x64
           path: build
+      - uses: actions/download-artifact@v8
+        with:
+          name: Tinypen-win-x64-next
+          path: next
       - name: Drive Tinypen
         shell: powershell
-        run: windows/e2e/drive.ps1 -Exe build/Tinypen-win-x64.exe -Shots shots
+        run: windows/e2e/drive.ps1 -Exe build/Tinypen-win-x64.exe -Shots shots -Next next
       - uses: actions/upload-artifact@v7
         if: always()
         with:

@@ -17,6 +17,7 @@ pub const CLEAR: u32 = 10;
 pub const OPEN_AT_LOGIN: u32 = 11;
 pub const SETTINGS: u32 = 12;
 pub const QUIT: u32 = 13;
+pub const DOWNLOAD: u32 = 14;
 
 /// One line of the menu: its command, its title, ticked, and available.
 pub struct Entry {

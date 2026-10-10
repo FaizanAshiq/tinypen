@@ -55,3 +55,39 @@ jobs:
           name: Tinypen-mac
           path: Tinypen-mac.zip
           retention-days: 14
+      # The same app one version on, signed the same way, for the e2e run to update to.
+      - name: Next version
+        run: |
+          version=$(plutil -extract CFBundleShortVersionString raw mac/dist/Tinypen.app/Contents/Info.plist)
+          mkdir next
+          ditto mac/dist/Tinypen.app next/Tinypen.app
+          echo "$version" | awk -F. '{print $1"."$2"."$3+1}' > next/version
+          plutil -replace CFBundleShortVersionString -string "$(cat next/version)" next/Tinypen.app/Contents/Info.plist
+          codesign --force --sign "Tinysnap Release" next/Tinypen.app
+          ditto -c -k --keepParent next/Tinypen.app next/Tinypen-mac.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Tinypen-mac-next
+          path: |
+            next/Tinypen-mac.zip
+            next/version
+          retention-days: 14
+
+  # The downloaded app updating itself to the next version, as a person's would.
+  e2e:
+    needs: package
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: Tinypen-mac
+          path: release
+      - uses: actions/download-artifact@v8
+        with:
+          name: Tinypen-mac-next
+          path: next
+      - run: bash mac/e2e/update.sh release/Tinypen-mac.zip next
+      - if: always()
+        run: cat app.log 2>/dev/null || true

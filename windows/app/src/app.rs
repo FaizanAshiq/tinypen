@@ -9,6 +9,7 @@ use crate::picker::{Item, Picker, PICKER_CLASS};
 use crate::system::{self, Monitor};
 use crate::toolbar::{Look, Toolbar, TOOLBAR_CLASS};
 use crate::tray::{self, Entry, Tray, TRAY_MESSAGE};
+use crate::updater::{self, Updater};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -46,6 +47,7 @@ thread_local! {
 }
 
 pub fn run() {
+    updater::wait_for_replaced();
     if !system::first_copy() {
         unsafe {
             if let Ok(window) = FindWindowW(MESSAGE_CLASS, None) {
@@ -68,7 +70,8 @@ pub fn run() {
             };
             RegisterClassExW(&description);
         }
-        match App::new(instance) {
+        let downloaded = updater::clear_away();
+        match App::new(instance, downloaded) {
             Ok(app) => APP.with(|cell| *cell.borrow_mut() = Some(app)),
             Err(error) => {
                 let text = windows::core::HSTRING::from(format!("Tinypen could not start: {error}"));
@@ -107,6 +110,7 @@ struct App {
     picker: Picker,
     lens: Option<LensWindow>,
     tray: Tray,
+    updater: Updater,
     /// The message Explorer sends every window when it starts again, as after a crash.
     taskbar_created: u32,
     drawing: bool,
@@ -131,7 +135,7 @@ struct App {
 }
 
 impl App {
-    fn new(instance: HINSTANCE) -> Result<App> {
+    fn new(instance: HINSTANCE, downloaded: bool) -> Result<App> {
         let path = Preferences::default_path();
         let preferences = Preferences::load(&path);
         if !path.exists() {
@@ -156,6 +160,7 @@ impl App {
                 picker,
                 lens: None,
                 tray,
+                updater: Updater::new(window, downloaded),
                 taskbar_created: RegisterWindowMessageW(w!("TaskbarCreated")),
                 drawing: false,
                 effect: None,
@@ -186,6 +191,12 @@ impl App {
 
     fn has_marks(&self) -> bool {
         self.overlays.iter().any(|overlay| !overlay.is_empty())
+    }
+
+    /// Nothing on screen and nothing a restart would lose: drawing mode off, no laser, spotlight or
+    /// lens, and every monitor blank. An update can restart Tinypen then.
+    fn is_idle(&self) -> bool {
+        !self.drawing && self.effect.is_none() && self.overlays.iter().all(|overlay| overlay.canvas.is_blank())
     }
 
     /// A layer for every monitor, kept for those still there, so a monitor plugged in or out mid
@@ -823,6 +834,12 @@ impl App {
             WM_TIMER if wparam.0 == TICK => self.tick(),
             WM_TIMER if wparam.0 == PASS => self.stop_passing_scroll(),
             WM_TIMER if wparam.0 == SETTINGS_CHECK => self.reload_if_changed(),
+            WM_TIMER if wparam.0 == updater::TIMER => {
+                if self.updater.tick(self.is_idle()) {
+                    unsafe { PostQuitMessage(0) }
+                }
+            }
+            updater::LOOKED => self.updater.looked(),
             TRAY_MESSAGE => match lparam.0 as u32 {
                 WM_LBUTTONUP => self.toggle_drawing(),
                 WM_RBUTTONUP | WM_CONTEXTMENU => self.show_menu(),
@@ -848,7 +865,7 @@ impl App {
             }
             Some(Entry { command, title, checked, enabled: true })
         };
-        let entries = [
+        let mut entries = vec![
             line(tray::DRAW, HotKeyAction::Draw, self.drawing),
             line(tray::LASER, HotKeyAction::Laser, self.effect == Some(Tool::Laser)),
             line(tray::SPOTLIGHT, HotKeyAction::Spotlight, self.effect == Some(Tool::Spotlight)),
@@ -861,6 +878,10 @@ impl App {
             None,
             Some(Entry { command: tray::QUIT, title: "Quit Tinypen".into(), checked: false, enabled: true }),
         ];
+        if let Some(version) = &self.updater.available {
+            let title = format!("Download Tinypen {version}...");
+            entries.splice(0..0, [Some(Entry { command: tray::DOWNLOAD, title, checked: false, enabled: true }), None]);
+        }
         match self.tray.menu(&entries) {
             Ok(Some(tray::DRAW)) => self.toggle_drawing(),
             Ok(Some(tray::LASER)) => self.toggle_effect(Tool::Laser),
@@ -875,6 +896,7 @@ impl App {
                 }
             }
             Ok(Some(tray::SETTINGS)) => system::open_in_notepad(&self.path),
+            Ok(Some(tray::DOWNLOAD)) => self.updater.open_download(),
             Ok(Some(tray::QUIT)) => unsafe { PostQuitMessage(0) },
             _ => {}
         }

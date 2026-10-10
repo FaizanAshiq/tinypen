@@ -70,6 +70,9 @@ final class Session {
     var hasMarks: Bool { overlays.contains { !$0.view.isEmpty } }
     /// Marks showing for Delete to clear; an empty board has none.
     var canClear: Bool { overlays.contains { !$0.view.canvas.marks.isEmpty } }
+    /// Nothing on screen and nothing a restart would lose: drawing mode off, no laser, spotlight or
+    /// lens, and every display blank.
+    var isIdle: Bool { !drawing && effect == nil && overlays.allSatisfy { $0.view.canvas.isBlank } }
 
     func overlay(for id: CGDirectDisplayID) -> Overlay? {
         overlays.first { $0.displayID == id }

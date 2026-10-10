@@ -24,6 +24,25 @@ struct CanvasTests {
         #expect(canvas.marks == [mark(1)])
     }
 
+    /// An update restarts Tinypen only when that loses nothing: no marks, a closed board's
+    /// included, and nothing an Esc or Delete cleared that undo could still bring back.
+    @Test func blankOnlyWithNothingARestartWouldLose() {
+        var canvas = Canvas()
+        #expect(canvas.isBlank)
+        canvas.add(mark(1))
+        #expect(!canvas.isBlank)
+        canvas.erase()
+        #expect(canvas.isEmpty && !canvas.isBlank)
+        canvas.keepCleared()
+        #expect(canvas.isBlank)
+        canvas.cycleBoard()
+        canvas.add(mark(2))
+        canvas.closeBoard()
+        #expect(canvas.isEmpty && !canvas.isBlank)
+        canvas.reset()
+        #expect(canvas.isBlank)
+    }
+
     @Test func aMarkDrawnAfterEscIsWhatUndoTakesBack() {
         var canvas = Canvas()
         canvas.add(mark(1))
