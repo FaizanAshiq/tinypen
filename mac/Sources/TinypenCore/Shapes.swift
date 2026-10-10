@@ -30,8 +30,18 @@ enum ArrowShape {
     }
 }
 
-/// A smooth curve through a freehand stroke's points, Catmull-Rom style, as Tinysnap draws it.
+/// A freehand stroke as a smooth curve, for the pen and the highlighter.
 public enum Smoothing {
+    /// How far along the stroke, in points, a point is pulled towards its neighbours: at least
+    /// this, more where a quick stroke spaced its points out, up to the most.
+    static let reach: (least: CGFloat, most: CGFloat) = (3, 5)
+
+    /// The pointer reports whole points, so a slow line arrives as a staircase, and a quick one
+    /// zigzags by up to a point either way. Each point is pulled towards its neighbours within a
+    /// few points of length either side, which irons that out and leaves a turn the hand made in
+    /// place. The curve then runs through the middle
+    /// of each pair of points rather than through the points, so it has no corner anywhere.
+    /// Reported: drawn through every point, strokes came out rough, with a kink at every step.
     public static func path(through points: [CGPoint]) -> CGPath {
         let path = CGMutablePath()
         guard let first = points.first else { return path }
@@ -42,16 +52,40 @@ public enum Smoothing {
             points.dropFirst().forEach { path.addLine(to: $0) }
             return path
         }
-        for index in 0..<(points.count - 1) {
-            let p0 = points[max(index - 1, 0)]
-            let p1 = points[index]
-            let p2 = points[index + 1]
-            let p3 = points[min(index + 2, points.count - 1)]
-            path.addCurve(to: p2,
-                          control1: CGPoint(x: p1.x + (p2.x - p0.x) / 6, y: p1.y + (p2.y - p0.y) / 6),
-                          control2: CGPoint(x: p2.x - (p3.x - p1.x) / 6, y: p2.y - (p3.y - p1.y) / 6))
+        let smooth = smoothed(points)
+        for index in 1..<(smooth.count - 1) {
+            let point = smooth[index]
+            let next = smooth[index + 1]
+            path.addQuadCurve(to: CGPoint(x: (point.x + next.x) / 2, y: (point.y + next.y) / 2), control: point)
         }
+        path.addLine(to: smooth[smooth.count - 1])
         return path
+    }
+
+    /// Every point but the first and last moved to the average of those near it along the stroke,
+    /// the nearest counting most.
+    static func smoothed(_ points: [CGPoint]) -> [CGPoint] {
+        var along: [CGFloat] = [0]
+        for (from, to) in zip(points, points.dropFirst()) { along.append(along[along.count - 1] + from.distance(to: to)) }
+        var result = points
+        var low = 0
+        for index in 1..<(points.count - 1) {
+            let reach = min(max((along[index + 1] - along[index - 1]) / 2, Self.reach.least), Self.reach.most)
+            let span = reach * 3
+            while along[index] - along[low] > span { low += 1 }
+            var x: CGFloat = 0, y: CGFloat = 0, total: CGFloat = 0
+            var near = low
+            while near < points.count, along[near] - along[index] <= span {
+                let gap = along[near] - along[index]
+                let weight = exp(-gap * gap / (2 * reach * reach))
+                x += points[near].x * weight
+                y += points[near].y * weight
+                total += weight
+                near += 1
+            }
+            result[index] = CGPoint(x: x / total, y: y / total)
+        }
+        return result
     }
 }
 

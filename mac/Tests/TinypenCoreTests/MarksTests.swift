@@ -73,6 +73,83 @@ struct SmoothingTests {
         #expect(path.boundingBoxOfPath.minX == 0)
     }
 
+    /// The pointer reports whole points, so a slow line arrives as a staircase. Reported: strokes came
+    /// out rough, with a kink at every step.
+    @Test func aSlowStraightLineComesOutStraight() {
+        let points = (0...120).map { CGPoint(x: CGFloat($0), y: (CGFloat($0) * 0.3).rounded()) }
+        let slope = atan2(0.3, 1.0)
+        let worst = directions(Smoothing.path(through: points)).map { abs($0 - slope) }.max()!
+        #expect(worst < 3 * .pi / 180)
+    }
+
+    /// A circle drawn slowly turns evenly, a little each point, with no corner anywhere.
+    @Test func aSlowCircleTurnsEvenly() {
+        let points = stride(from: 0.0, through: 330.0, by: 1.5).map { degrees in
+            let angle = degrees * .pi / 180
+            return CGPoint(x: (100 + 40 * cos(angle)).rounded(), y: (100 + 40 * sin(angle)).rounded())
+        }
+        let angles = directions(Smoothing.path(through: points))
+        let worst = zip(angles, angles.dropFirst()).map { abs(remainder($1 - $0, 2 * .pi)) }.max()!
+        #expect(worst < 4 * .pi / 180)
+    }
+
+    /// A quick stroke reports a point every several, each off by up to a point. The wave bends one
+    /// way and then the other, without wobbling in between.
+    @Test func aQuickWaveBendsWithoutWobbling() {
+        let points = (0...60).map { index in
+            let t = CGFloat(index) / 60
+            let wobble = sin(CGFloat(index) * 12.9898) * 0.35
+            return CGPoint(x: (240 + 140 * t + wobble).rounded(), y: (260 + 60 * sin(t * 3 * .pi) - wobble).rounded())
+        }
+        let angles = directions(Smoothing.path(through: points))
+        let turns = zip(angles, angles.dropFirst()).map { remainder($1 - $0, 2 * .pi) }.filter { abs($0) > 0.5 * .pi / 180 }
+        let flips = zip(turns, turns.dropFirst()).filter { ($0 < 0) != ($1 < 0) }.count
+        #expect(flips <= 2)
+    }
+
+    /// Which way the path heads along each point of its length.
+    private func directions(_ path: CGPath) -> [CGFloat] {
+        var line: [CGPoint] = []
+        path.applyWithBlock { pointer in
+            let element = pointer.pointee
+            let p = element.points
+            switch element.type {
+            case .moveToPoint, .addLineToPoint:
+                line.append(p[0])
+            case .addQuadCurveToPoint:
+                let a = line.last!
+                for step in 1...32 {
+                    let t = CGFloat(step) / 32, u = 1 - t
+                    line.append(CGPoint(x: u * u * a.x + 2 * u * t * p[0].x + t * t * p[1].x,
+                                        y: u * u * a.y + 2 * u * t * p[0].y + t * t * p[1].y))
+                }
+            case .addCurveToPoint:
+                let a = line.last!
+                for step in 1...32 {
+                    let t = CGFloat(step) / 32, u = 1 - t
+                    line.append(CGPoint(x: u * u * u * a.x + 3 * u * u * t * p[0].x + 3 * u * t * t * p[1].x + t * t * t * p[2].x,
+                                        y: u * u * u * a.y + 3 * u * u * t * p[0].y + 3 * u * t * t * p[1].y + t * t * t * p[2].y))
+                }
+            default:
+                break
+            }
+        }
+        // Every point of length, so a dense stretch weighs no more than a sparse one.
+        var even = [line[0]]
+        var travelled: CGFloat = 0
+        for (from, to) in zip(line, line.dropFirst()) {
+            let length = hypot(to.x - from.x, to.y - from.y)
+            guard length > 0 else { continue }
+            var at = 1 - travelled
+            while at <= length {
+                even.append(CGPoint(x: from.x + (to.x - from.x) * at / length, y: from.y + (to.y - from.y) * at / length))
+                at += 1
+            }
+            travelled = length - (at - 1)
+        }
+        return zip(even, even.dropFirst()).map { atan2($1.y - $0.y, $1.x - $0.x) }
+    }
+
     /// Points closer than half a point add nothing but work for the renderer.
     @Test func pointsTooCloseTogetherAreDropped() {
         var stroke = StrokeBuilder()
