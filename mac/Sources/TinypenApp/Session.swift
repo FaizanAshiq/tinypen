@@ -25,6 +25,7 @@ final class Session {
     private var history: [CGDirectDisplayID] = []
     private var lastWasClear = false
     private var screens: NSObjectProtocol?
+    private var resigned: NSObjectProtocol?
     /// The app in front when drawing started, which gets the keyboard back when it stops.
     private var previousApp: NSRunningApplication?
     /// The display whose layer takes the keys while drawing.
@@ -42,6 +43,16 @@ final class Session {
         screens = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                          object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.rebuildOverlays() }
+        }
+        // Another app took the keyboard mid drawing, a macOS prompt or Command Tab, so the layer stops
+        // taking clicks too, the marks kept. Reported: a prompt opened under the layer, out of reach,
+        // and Esc then went to the terminal behind it.
+        resigned = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification,
+                                                          object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.drawing else { return }
+                self.stopDrawing(returningFocus: false)
+            }
         }
         zoom.onRefused = { [weak self] in self?.zoomRefused() }
     }
