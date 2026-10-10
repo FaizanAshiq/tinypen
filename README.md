@@ -20,6 +20,15 @@ Only the pen, highlighter, arrow and box take the mouse. Scrolling while drawing
 under the drawing, moving or not; half a second after you stop, the next click draws again. The laser, spotlight and zoom let every
 click through to the app underneath, whether switched on by their hotkey or from the toolbar.
 
+## Download
+
+From the [latest release](https://github.com/FaizanAshiq/tinypen/releases/latest):
+
+| | |
+| --- | --- |
+| **Mac**, macOS 14 or later | `Tinypen-mac.zip`. Open it and drag Tinypen into Applications. The first time, macOS says it cannot check it for malware, as it does for any app not signed with a paid Apple developer account: open System Settings, Privacy & Security, and click Open Anyway. Zoom asks for Screen Recording the first time you use it. |
+| **Windows** 10 or 11 | `Tinypen-win-x64.exe`, or `Tinypen-win-arm64.exe` on an ARM PC. Run it and it waits in the tray, by the clock. If SmartScreen warns about an unknown publisher, click More info, then Run anyway. |
+
 ## Building
 
 **Mac** (macOS 14 or later, Swift 6):
