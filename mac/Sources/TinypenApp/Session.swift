@@ -238,11 +238,10 @@ final class Session {
         overlays.forEach { $0.panel.ignoresMouseEvents = !screen.takesMouse }
     }
 
-    /// A scroll with Option held, in wheel notches: the spotlight grows by 20 points a notch, the
-    /// lens zooms.
+    /// A scroll with Option held, in notches: the spotlight grows, the lens zooms.
     func scrolled(_ notches: CGFloat) {
         switch effect {
-        case .spotlight: spotlightRadius = Spotlight.radius(spotlightRadius, scrolled: notches * 20)
+        case .spotlight: spotlightRadius = Spotlight.radius(spotlightRadius, scrolled: notches)
         case .zoom: magnification = Lens.magnification(magnification, scrolled: notches)
         default: return
         }

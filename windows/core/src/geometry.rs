@@ -180,9 +180,10 @@ impl Lens {
     pub const MIN: f32 = 1.5;
     pub const MAX: f32 = 6.0;
 
-    /// The magnification after a scroll of `notches`, up for more, about 1.15 times a notch.
+    /// The magnification after a scroll of `notches`, up for more, 1.08 times a notch: from 2x to the
+    /// most is about fifteen notches.
     pub fn magnification(current: f32, notches: f32) -> f32 {
-        (current * 1.15_f32.powf(notches)).clamp(Self::MIN, Self::MAX)
+        (current * 1.08_f32.powf(notches)).clamp(Self::MIN, Self::MAX)
     }
 
     /// The part of the screen the lens shows, centred on the pointer.
@@ -198,9 +199,10 @@ pub struct Spotlight;
 impl Spotlight {
     pub const RADIUS: f32 = 140.0;
 
-    /// The radius after growing by `delta` pixels, kept between 60 and 600.
-    pub fn radius(current: f32, delta: f32) -> f32 {
-        (current + delta).clamp(60.0, 600.0)
+    /// The radius after a scroll of `notches`, up for bigger, 10 pixels a notch, kept between 60
+    /// and 600.
+    pub fn radius(current: f32, notches: f32) -> f32 {
+        (current + notches * 10.0).clamp(60.0, 600.0)
     }
 }
 
@@ -338,7 +340,14 @@ mod tests {
     fn the_spotlight_stays_between_60_and_600() {
         assert_eq!(Spotlight::radius(140.0, 1000.0), 600.0);
         assert_eq!(Spotlight::radius(140.0, -1000.0), 60.0);
-        assert_eq!(Spotlight::radius(140.0, 10.0), 150.0);
+    }
+
+    /// Reported on the Mac: scrolling sized the spotlight and the lens aggressively. A notch is now a
+    /// gentle step.
+    #[test]
+    fn a_notch_is_a_gentle_step() {
+        assert_eq!(Spotlight::radius(140.0, 1.0), 150.0);
+        assert!((Lens::magnification(2.0, 1.0) - 2.16).abs() < 0.001);
     }
 
     #[test]

@@ -199,6 +199,32 @@ struct LensTests {
     @Test func spotlightStaysBetween60And600Points() {
         #expect(Spotlight.radius(140, scrolled: 1000) == 600)
         #expect(Spotlight.radius(140, scrolled: -1000) == 60)
-        #expect(Spotlight.radius(140, scrolled: 10) == 150)
+    }
+
+    /// Reported: scrolling sized the spotlight and the lens aggressively. A notch is now a gentle step.
+    @Test func aNotchIsAGentleStep() {
+        #expect(Spotlight.radius(140, scrolled: 1) == 150)
+        #expect(abs(Lens.magnification(2, scrolled: 1) - 2.16) < 0.001)
+    }
+}
+
+/// How far a scroll moves the spotlight or the lens, in notches.
+struct ScrollTests {
+    /// macOS speeds a fast spinning wheel up; each click still counts once.
+    @Test func aWheelMovesOneNotchAClickHoweverFastItSpins() {
+        #expect(Scroll.notches(deltaY: 7, precise: false, momentum: false) == 1)
+        #expect(Scroll.notches(deltaY: -3, precise: false, momentum: false) == -1)
+        #expect(Scroll.notches(deltaY: 0, precise: false, momentum: false) == 0)
+    }
+
+    /// A gentle two finger swipe travels about a hundred points, and so does one wheel click smoothed
+    /// by an app such as Mos, measured at 96: each is one notch, not ten.
+    @Test func smoothScrollingMovesANotchForEvery100Points() {
+        #expect(Scroll.notches(deltaY: 100, precise: true, momentum: false) == 1)
+        #expect(Scroll.notches(deltaY: -25, precise: true, momentum: false) == -0.25)
+    }
+
+    @Test func theGlideAfterTheFingersLiftMovesNothing() {
+        #expect(Scroll.notches(deltaY: 30, precise: true, momentum: true) == 0)
     }
 }

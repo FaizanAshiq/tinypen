@@ -434,11 +434,10 @@ impl App {
         self.pick_size((self.preferences.size as i32 + step).max(0) as usize);
     }
 
-    /// A scroll with Alt held, in wheel notches: the spotlight grows by 20 pixels a notch, the lens
-    /// zooms.
+    /// A scroll with Alt held, in notches: the spotlight grows, the lens zooms.
     fn scrolled(&mut self, notches: f32) {
         match self.effect {
-            Some(Tool::Spotlight) => self.spotlight_radius = Spotlight::radius(self.spotlight_radius, notches * 20.0),
+            Some(Tool::Spotlight) => self.spotlight_radius = Spotlight::radius(self.spotlight_radius, notches),
             Some(Tool::Zoom) => self.magnification = Lens::magnification(self.magnification, notches),
             _ => return,
         }
@@ -838,7 +837,9 @@ impl App {
                 self.render_toolbar();
             }
             // Reaches the layer only while Alt is held over the spotlight or the lens.
-            WM_MOUSEWHEEL => self.scrolled((wparam.0 >> 16) as i16 as f32 / 120.0),
+            // A notch is 120; a touchpad sends less a message, and no message counts more than one notch,
+            // which keeps a fast spin gentle, as on the Mac.
+            WM_MOUSEWHEEL => self.scrolled(((wparam.0 >> 16) as i16 as f32 / 120.0).clamp(-1.0, 1.0)),
             // Alt and a click over the spotlight or the lens leave the app in front where it is.
             WM_MOUSEACTIVATE if !marking => return Some(LRESULT(MA_NOACTIVATE as isize)),
             WM_DPICHANGED | WM_DISPLAYCHANGE => unsafe {

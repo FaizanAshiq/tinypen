@@ -198,8 +198,8 @@ final class OverlayView: NSView {
 
     /// Reaches the layer only while Option is held over the spotlight or the lens.
     override func scrollWheel(with event: NSEvent) {
-        // A trackpad reports points, a wheel whole notches.
-        session.scrolled(event.hasPreciseScrollingDeltas ? event.scrollingDeltaY / 10 : event.scrollingDeltaY)
+        session.scrolled(Scroll.notches(deltaY: event.scrollingDeltaY, precise: event.hasPreciseScrollingDeltas,
+                                        momentum: event.momentumPhase != []))
     }
 
     override func keyDown(with event: NSEvent) {

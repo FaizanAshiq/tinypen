@@ -125,9 +125,10 @@ public enum Lens {
     public static let radius: CGFloat = 120
     public static let range: ClosedRange<CGFloat> = 1.5...6
 
-    /// The magnification after a scroll of `notches`, up for more, about 1.15 times a notch.
+    /// The magnification after a scroll of `notches`, up for more, 1.08 times a notch: from 2x to the
+    /// most is about fifteen notches.
     public static func magnification(_ current: CGFloat, scrolled notches: CGFloat) -> CGFloat {
-        min(range.upperBound, max(range.lowerBound, current * pow(1.15, notches)))
+        min(range.upperBound, max(range.lowerBound, current * pow(1.08, notches)))
     }
 
     /// The part of the screen the lens shows, centred on the pointer.
@@ -142,8 +143,23 @@ public enum Spotlight {
     public static let radius: CGFloat = 140
     public static let range: ClosedRange<CGFloat> = 60...600
 
-    /// The radius after growing or shrinking by `delta` points.
-    public static func radius(_ current: CGFloat, scrolled delta: CGFloat) -> CGFloat {
-        min(range.upperBound, max(range.lowerBound, current + delta))
+    /// The radius after a scroll of `notches`, up for bigger, 10 points a notch.
+    public static func radius(_ current: CGFloat, scrolled notches: CGFloat) -> CGFloat {
+        min(range.upperBound, max(range.lowerBound, current + notches * 10))
+    }
+}
+
+/// How far one scroll moves the spotlight or the lens. Reported: sizing was aggressive. A gentle
+/// trackpad swipe, or one wheel click smoothed by an app such as Mos into about a hundred points of
+/// smooth scrolling, counted ten notches; the glide after the fingers lifted kept going; and a fast
+/// spinning wheel, which macOS speeds up, counted several notches a click.
+public enum Scroll {
+    /// A plain wheel moves one notch a click, however fast it spins; smooth scrolling, from a
+    /// trackpad or a smoothed wheel, one notch for every 100 points it travels, and nothing for its
+    /// glide.
+    public static func notches(deltaY: CGFloat, precise: Bool, momentum: Bool) -> CGFloat {
+        if momentum { return 0 }
+        if precise { return deltaY / 100 }
+        return deltaY == 0 ? 0 : (deltaY > 0 ? 1 : -1)
     }
 }
