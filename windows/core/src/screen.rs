@@ -27,8 +27,8 @@ pub struct Screen {
     pub picking_color: bool,
     /// Alt (Option on the Mac) is held, to size the spotlight or the lens by scrolling.
     pub sizing: bool,
-    /// A scroll came while drawing, and goes on to the app under the drawing until the pointer moves
-    /// or the scrolling pauses.
+    /// A scroll came while drawing, and goes on to the app under the drawing until the scrolling
+    /// pauses.
     pub passing_scroll: bool,
 }
 

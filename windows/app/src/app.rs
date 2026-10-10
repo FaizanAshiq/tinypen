@@ -11,7 +11,7 @@ use crate::toolbar::{Look, Toolbar, TOOLBAR_CLASS};
 use crate::tray::{self, Entry, Tray, TRAY_MESSAGE};
 use std::cell::RefCell;
 use std::path::PathBuf;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Instant, SystemTime};
 use tinypen_core::{HeldKeys, HotKeyAction, Lens, Palette, Preferences, Screen, Spotlight, Tool, ToolbarSpot, WIDTHS};
 use windows::core::{w, Result, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HGLOBAL, HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
@@ -120,12 +120,8 @@ struct App {
     held: Vec<(HOT_KEY_MODIFIERS, u16)>,
     /// Alt is held, so the spotlight or the lens takes the scroll that sizes it.
     sizing: bool,
-    /// A scroll while drawing goes on to the app under the drawing, from where the pointer was.
+    /// A scroll while drawing goes on to the app under the drawing.
     passing_scroll: bool,
-    passing_from: POINT,
-    passing_last: Instant,
-    /// Until when a scroll is the tail of one already let through.
-    scroll_tail_ends: Instant,
     clock: Instant,
     ticking: bool,
 }
@@ -167,9 +163,6 @@ impl App {
                 holding: HeldKeys::None,
                 sizing: false,
                 passing_scroll: false,
-                passing_from: POINT::default(),
-                passing_last: Instant::now(),
-                scroll_tail_ends: Instant::now(),
                 held: Vec::new(),
                 clock: Instant::now(),
                 ticking: false,
@@ -450,26 +443,18 @@ impl App {
 
     /// A scroll reached the layer while drawing. It takes the mouse to draw, and scrolling went nowhere,
     /// as reported on the Mac. Now the mouse goes through to the app under the drawing, so the page
-    /// scrolls, until the pointer moves to draw again or the scrolling pauses for a second; this scroll
-    /// is handed on to it, so none is lost.
+    /// scrolls, the pointer moving or not, and comes back half a second after the last scroll that
+    /// reached the layer, for the next click to draw; a scroll after that reaches the layer again and is
+    /// let through again. Each one is handed on, so none is lost.
     fn pass_scroll(&mut self, delta: i16) {
-        let now = Instant::now();
-        // The pointer moved off to draw while a smoothed scroll was still finishing: its tail must not
-        // let the next click through.
-        if now < self.scroll_tail_ends {
-            return;
-        }
-        self.passing_last = now;
         if !self.passing_scroll {
             self.passing_scroll = true;
-            unsafe {
-                let _ = GetCursorPos(&mut self.passing_from);
-            }
             let takes_mouse = self.screen().takes_mouse();
             self.overlays.iter().for_each(|overlay| overlay.take_clicks(takes_mouse));
-            unsafe {
-                SetTimer(Some(self.window), PASS, 30, None);
-            }
+        }
+        // The same timer again puts it off.
+        unsafe {
+            SetTimer(Some(self.window), PASS, 500, None);
         }
         let wheel = INPUT {
             r#type: INPUT_MOUSE,
@@ -477,19 +462,6 @@ impl App {
         };
         unsafe {
             SendInput(&[wheel], size_of::<INPUT>() as i32);
-        }
-    }
-
-    /// Each 30 ms while a scroll goes through: the pointer moved to draw, or a second passed without one.
-    fn check_passing(&mut self) {
-        let mut at = POINT::default();
-        let moved = unsafe { GetCursorPos(&mut at) }.is_ok()
-            && (((at.x - self.passing_from.x).pow(2) + (at.y - self.passing_from.y).pow(2)) as f32).sqrt() > 4.0;
-        if moved {
-            self.scroll_tail_ends = Instant::now() + Duration::from_millis(600);
-        }
-        if moved || self.passing_last.elapsed() >= Duration::from_secs(1) {
-            self.stop_passing_scroll();
         }
     }
 
@@ -785,7 +757,7 @@ impl App {
                 }
             }
             WM_TIMER if wparam.0 == TICK => self.tick(),
-            WM_TIMER if wparam.0 == PASS => self.check_passing(),
+            WM_TIMER if wparam.0 == PASS => self.stop_passing_scroll(),
             WM_TIMER if wparam.0 == SETTINGS_CHECK => self.reload_if_changed(),
             TRAY_MESSAGE => match lparam.0 as u32 {
                 WM_LBUTTONUP => self.toggle_drawing(),

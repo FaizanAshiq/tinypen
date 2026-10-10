@@ -199,11 +199,7 @@ final class OverlayView: NSView {
     /// Reaches the layer while drawing, to go on to the app under the drawing, or while Option is held
     /// over the spotlight or the lens, to size them.
     override func scrollWheel(with event: NSEvent) {
-        guard session.effect != nil else {
-            // A trackpad's glide after the fingers lift is the end of a scroll, never the start of one.
-            if event.momentumPhase == [] { session.passScroll() }
-            return
-        }
+        guard session.effect != nil else { return session.passScroll() }
         session.scrolled(Scroll.notches(deltaY: event.scrollingDeltaY, precise: event.hasPreciseScrollingDeltas,
                                         momentum: event.momentumPhase != []))
     }

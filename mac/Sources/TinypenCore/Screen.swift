@@ -21,8 +21,8 @@ public struct Screen: Equatable, Sendable {
     public var pickingColor: Bool
     /// Option (Alt on Windows) is held, to size the spotlight or the lens by scrolling.
     public var sizing: Bool
-    /// A scroll came while drawing, and goes on to the app under the drawing until the pointer moves
-    /// or the scrolling pauses.
+    /// A scroll came while drawing, and goes on to the app under the drawing until the scrolling
+    /// pauses.
     public var passingScroll: Bool
 
     public init(drawing: Bool, effect: Tool?, hasMarks: Bool = false, pickingColor: Bool = false, sizing: Bool = false,

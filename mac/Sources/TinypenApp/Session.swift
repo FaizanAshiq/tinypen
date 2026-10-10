@@ -28,14 +28,10 @@ final class Session {
     private var pickingColor = false
     /// Option is held, so the spotlight or the lens takes the scroll that sizes it.
     private var sizing = false
-    /// A scroll while drawing goes on to the app under the drawing, from where the pointer was.
+    /// A scroll while drawing goes on to the app under the drawing.
     private var passingScroll = false
-    private var passingFrom = NSPoint.zero
     private var passingWatch: Any?
     private var passingPause: DispatchWorkItem?
-    private var passingPoll: Timer?
-    /// Until when a scroll is the tail of one already let through, smoothed out by an app such as Mos.
-    private var scrollTailEnds = Date.distantPast
     private var screens: NSObjectProtocol?
     private lazy var keys = DrawingKeys { [unowned self] key in
         _ = handleKey(code: key.code, command: key.command, character: key.character)
@@ -240,49 +236,35 @@ final class Session {
     }
 
     /// A scroll reached the layer while drawing. It takes the mouse to draw, and scrolling went nowhere,
-    /// as reported. Now the mouse goes through to the app under the drawing, so the page scrolls, until
-    /// the pointer moves to draw again or the scrolling pauses for a second. The scroll that got here is
-    /// lost: handing it on would need the Accessibility permission.
+    /// as reported. Now the mouse goes through to the app under the drawing, so the page scrolls, for as
+    /// long as scrolls keep coming, the pointer moving or not, and comes back half a second after the
+    /// last one, for the next click to draw. Reported: a first try handed it back as soon as the pointer
+    /// moved, so scrolling while moving went nowhere. The scroll that got here is lost: handing it on
+    /// would need the Accessibility permission.
     func passScroll() {
-        // The pointer moved off to draw while a smoothed scroll was still finishing: its tail must not
-        // let the next click through.
-        guard Date() >= scrollTailEnds else { return }
         if !passingScroll {
             passingScroll = true
-            passingFrom = NSEvent.mouseLocation
             overlays.forEach { $0.panel.ignoresMouseEvents = !screen.takesMouse }
-            // Scrolls in other apps can be watched without any permission, unlike keys, so each one
-            // puts the pause off. The pointer is read rather than watched: the watch missed moves.
+            // Scrolls in other apps can be watched without any permission, unlike keys: each one puts
+            // the mouse coming back off.
             passingWatch = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel) { [weak self] _ in
                 MainActor.assumeIsolated { self?.pauseLater() }
             }
-            passingPoll = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated { self?.stopIfMoved() }
-            }
         }
         pauseLater()
-    }
-
-    private func stopIfMoved() {
-        let now = NSEvent.mouseLocation
-        guard hypot(now.x - passingFrom.x, now.y - passingFrom.y) > 4 else { return }
-        scrollTailEnds = Date(timeIntervalSinceNow: 0.6)
-        stopPassingScroll()
     }
 
     private func pauseLater() {
         passingPause?.cancel()
         let pause = DispatchWorkItem { [weak self] in self?.stopPassingScroll() }
         passingPause = pause
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: pause)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: pause)
     }
 
     private func stopPassingScroll() {
         guard passingScroll else { return }
         passingScroll = false
         passingPause?.cancel()
-        passingPoll?.invalidate()
-        passingPoll = nil
         if let passingWatch { NSEvent.removeMonitor(passingWatch) }
         passingWatch = nil
         overlays.forEach { $0.panel.ignoresMouseEvents = !screen.takesMouse }
