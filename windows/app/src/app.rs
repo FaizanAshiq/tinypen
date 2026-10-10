@@ -5,6 +5,7 @@ use crate::graphics::Graphics;
 use crate::icons::Button;
 use crate::lens::{LensWindow, LENS_CLASS};
 use crate::overlay::{Overlay, Scene, OVERLAY_CLASS};
+use crate::picker::{Item, Picker, PICKER_CLASS};
 use crate::system::{self, Monitor};
 use crate::toolbar::{Look, Toolbar, TOOLBAR_CLASS};
 use crate::tray::{self, Entry, Tray, TRAY_MESSAGE};
@@ -13,8 +14,12 @@ use std::path::PathBuf;
 use std::time::{Instant, SystemTime};
 use tinypen_core::{HotKeyAction, Lens, Palette, Preferences, Spotlight, Tool, WIDTHS};
 use windows::core::{w, Result, PCWSTR};
-use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
+use windows::Win32::Foundation::{COLORREF, HGLOBAL, HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
+use windows::Win32::System::DataExchange::{CloseClipboard, GetClipboardData, OpenClipboard};
+use windows::Win32::System::Diagnostics::Debug::MessageBeep;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::System::Memory::{GlobalLock, GlobalUnlock};
+use windows::Win32::UI::Controls::Dialogs::*;
 use windows::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -28,6 +33,7 @@ const TICK: usize = 1;
 // The mouse message flags for the left button and Shift.
 const MK_LBUTTON: usize = 0x1;
 const MK_SHIFT: usize = 0x4;
+const CF_UNICODETEXT: u32 = 13;
 const SETTINGS_CHECK: usize = 2;
 
 thread_local! {
@@ -46,7 +52,7 @@ pub fn run() {
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let instance: HINSTANCE = GetModuleHandleW(None).map(Into::into).unwrap_or_default();
-        for class in [MESSAGE_CLASS, OVERLAY_CLASS, TOOLBAR_CLASS, LENS_CLASS] {
+        for class in [MESSAGE_CLASS, OVERLAY_CLASS, TOOLBAR_CLASS, PICKER_CLASS, LENS_CLASS] {
             let description = WNDCLASSEXW {
                 cbSize: size_of::<WNDCLASSEXW>() as u32,
                 lpfnWndProc: Some(window_proc),
@@ -93,6 +99,7 @@ struct App {
     window: HWND,
     overlays: Vec<Overlay>,
     toolbar: Toolbar,
+    picker: Picker,
     lens: Option<LensWindow>,
     tray: Tray,
     drawing: bool,
@@ -120,6 +127,7 @@ impl App {
                                          Some(instance), None)?;
             let graphics = Graphics::new()?;
             let toolbar = Toolbar::new(instance)?;
+            let picker = Picker::new(instance)?;
             let tray = Tray::new(window);
             let mut app = App {
                 instance,
@@ -130,6 +138,7 @@ impl App {
                 window,
                 overlays: Vec::new(),
                 toolbar,
+                picker,
                 lens: None,
                 tray,
                 drawing: false,
@@ -231,7 +240,7 @@ impl App {
     // Modes
 
     fn toggle_drawing(&mut self) {
-        if self.drawing { self.stop_drawing() } else { self.start_drawing() }
+        if self.drawing { self.stop_drawing(true) } else { self.start_drawing() }
     }
 
     fn start_drawing(&mut self) {
@@ -250,26 +259,32 @@ impl App {
         }
     }
 
-    /// The marks stay and every click goes back to the apps under them, with the keys back in the
-    /// app that had them.
-    fn stop_drawing(&mut self) {
+    /// The marks stay and every click goes back to the apps under them, and the keys to the app
+    /// that had them, unless another app has taken them already.
+    fn stop_drawing(&mut self, returning_focus: bool) {
+        self.close_picker();
         self.drawing = false;
         self.toolbar.hide();
         self.refresh();
-        if let Some(previous) = self.previous.take() {
-            unsafe {
-                if IsWindow(Some(previous)).as_bool() {
-                    let _ = SetForegroundWindow(previous);
+        if let Some(previous) = self.previous.take()
+            && returning_focus {
+                unsafe {
+                    if IsWindow(Some(previous)).as_bool() {
+                        let _ = SetForegroundWindow(previous);
+                    }
                 }
             }
-        }
     }
 
     /// Esc: the first erases everything on screen and switches the laser, spotlight or zoom off,
     /// and undo brings the marks back; with nothing left, the next stops drawing.
     fn escape(&mut self) {
+        if self.picker.shown {
+            self.close_picker();
+            return;
+        }
         if !self.has_marks() && self.effect.is_none() {
-            self.stop_drawing();
+            self.stop_drawing(true);
             return;
         }
         self.overlays.iter_mut().for_each(Overlay::erase);
@@ -284,7 +299,7 @@ impl App {
         self.history.clear();
         self.last_was_clear = false;
         self.effect = None;
-        self.stop_drawing();
+        self.stop_drawing(true);
     }
 
     fn toggle_effect(&mut self, tool: Tool) {
@@ -333,16 +348,143 @@ impl App {
 
     fn pick_color(&mut self, index: usize) {
         if let Some(color) = Palette::COLORS.get(index) {
-            self.preferences.color = (*color).into();
-            self.save();
+            self.set_color((*color).into());
+        }
+    }
+
+    fn set_color(&mut self, hex: String) {
+        self.preferences.color = hex;
+        self.save();
+        self.render_toolbar();
+    }
+
+    fn pick_size(&mut self, size: usize) {
+        self.preferences.size = size.min(WIDTHS.len() - 1);
+        self.save();
+        self.render_toolbar();
+    }
+
+    fn step_size(&mut self, step: i32) {
+        self.pick_size((self.preferences.size as i32 + step).max(0) as usize);
+    }
+
+    // The colour picker
+
+    fn toggle_picker(&mut self) {
+        if self.picker.shown {
+            self.close_picker();
+            return;
+        }
+        let Some((button, scale)) = self.toolbar.color_button() else { return };
+        if self.picker.show(&self.graphics, button, scale, &self.preferences.recent_colors).is_ok() {
             self.render_toolbar();
         }
     }
 
-    fn step_size(&mut self, step: i32) {
-        self.preferences.size = (self.preferences.size as i32 + step).clamp(0, WIDTHS.len() as i32 - 1) as usize;
-        self.save();
-        self.render_toolbar();
+    /// Put away, with a custom colour picked kept beside the six.
+    fn close_picker(&mut self) {
+        if !self.picker.shown {
+            return;
+        }
+        self.picker.hide();
+        let recent = Palette::recent(&self.preferences.color, &self.preferences.recent_colors);
+        if recent != self.preferences.recent_colors {
+            self.preferences.recent_colors = recent;
+            self.save();
+        }
+    }
+
+    /// A colour picked is a finished choice, and puts the picker away.
+    fn picked(&mut self, hex: String) {
+        self.set_color(hex);
+        self.close_picker();
+    }
+
+    /// Windows' colour dialog, raised over the drawing layer, or it would open under it out of reach.
+    fn choose_color(&mut self) {
+        let colorref = |hex: &str| {
+            let (r, g, b) = Palette::rgb(hex);
+            let byte = |value: f32| (value * 255.0).round() as u32;
+            COLORREF(byte(r) | byte(g) << 8 | byte(b) << 16)
+        };
+        let mut custom = [COLORREF(0x00FF_FFFF); 16];
+        for (slot, hex) in custom.iter_mut().zip(&self.preferences.recent_colors) {
+            *slot = colorref(hex);
+        }
+        let mut choose = CHOOSECOLORW {
+            lStructSize: size_of::<CHOOSECOLORW>() as u32,
+            hwndOwner: unsafe { GetForegroundWindow() },
+            rgbResult: colorref(&self.preferences.color),
+            lpCustColors: custom.as_mut_ptr(),
+            Flags: CC_RGBINIT | CC_FULLOPEN | CC_ANYCOLOR | CC_ENABLEHOOK,
+            lpfnHook: Some(raise_dialog),
+            ..Default::default()
+        };
+        if unsafe { ChooseColorW(&mut choose) }.as_bool() {
+            let value = choose.rgbResult.0;
+            self.picked(format!("#{:02X}{:02X}{:02X}", value & 0xFF, (value >> 8) & 0xFF, (value >> 16) & 0xFF));
+        }
+    }
+
+    /// The hex field's keys, while it takes them: digits and A to F, Backspace, Return, and Ctrl+V.
+    fn hex_key(&mut self, key: VIRTUAL_KEY, control: bool) {
+        match key {
+            VK_RETURN => match self.picker.typed_color() {
+                Some(hex) => return self.picked(hex),
+                None => unsafe {
+                    let _ = MessageBeep(MB_OK);
+                },
+            },
+            VK_BACK | VK_DELETE => self.picker.backspace(),
+            VIRTUAL_KEY(0x56) if control => {
+                if !self.picker.paste(&clipboard_text()) {
+                    unsafe {
+                        let _ = MessageBeep(MB_OK);
+                    }
+                }
+            }
+            _ if control => return,
+            VIRTUAL_KEY(code @ (0x30..=0x39 | 0x41..=0x46)) => self.picker.type_digit(char::from(code as u8)),
+            VIRTUAL_KEY(code @ 0x60..=0x69) => self.picker.type_digit(char::from(b'0' + (code - 0x60) as u8)),
+            _ => return,
+        }
+        let _ = self.picker.render(&self.graphics, &self.preferences.color);
+    }
+
+    fn toolbar_button(&mut self, button: Option<Button>) {
+        match button {
+            Some(Button::Tool(tool)) => self.pick(tool),
+            Some(Button::Board) => self.cycle_board(),
+            Some(Button::Color) => self.toggle_picker(),
+            Some(Button::Size(size)) => self.pick_size(size),
+            Some(Button::Undo) => self.undo(),
+            Some(Button::Clear) => self.clear_all(),
+            Some(Button::Done) => self.leave(),
+            None => {}
+        }
+    }
+
+    fn handle_picker(&mut self, message: u32, lparam: LPARAM) -> Option<LRESULT> {
+        let (x, y) = (lparam.0 as i16 as i32, (lparam.0 >> 16) as i16 as i32);
+        match message {
+            WM_LBUTTONDOWN => match self.picker.hit(x, y) {
+                Some(Item::Swatch(hex)) => self.picked(hex),
+                Some(Item::Wheel) => self.choose_color(),
+                Some(Item::Hex) => {
+                    self.picker.editing = true;
+                    let _ = self.picker.render(&self.graphics, &self.preferences.color);
+                }
+                None => {}
+            },
+            WM_MOUSEMOVE => {
+                if self.picker.hover(x, y) {
+                    let _ = self.picker.render(&self.graphics, &self.preferences.color);
+                }
+            }
+            WM_MOUSEACTIVATE => return Some(LRESULT(MA_NOACTIVATE as isize)),
+            _ => return None,
+        }
+        Some(LRESULT(0))
     }
 
     /// A scroll, in wheel notches: the spotlight grows by 20 pixels a notch, the lens zooms.
@@ -410,11 +552,11 @@ impl App {
         let look = Look {
             chosen: self.effect.unwrap_or(self.preferences.tool),
             color: self.preferences.color.clone(),
-            thinner: self.preferences.size > 0,
-            thicker: self.preferences.size < WIDTHS.len() - 1,
+            size: self.preferences.size,
             has_marks: self.has_marks(),
         };
         let _ = self.toolbar.render(&self.graphics, &look);
+        let _ = self.picker.render(&self.graphics, &self.preferences.color);
     }
 
     /// Each frame while an effect is on: follow the pointer, fade the laser, move the lens.
@@ -448,11 +590,19 @@ impl App {
     // Input
 
     fn handle(&mut self, window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
+        // Another app took the keys mid drawing, by Alt+Tab or a window of its own, so the layer
+        // stops taking clicks too, the marks kept, as the Mac app does.
+        if message == WM_ACTIVATEAPP && wparam.0 == 0 && self.drawing {
+            self.stop_drawing(false);
+        }
         if window == self.window {
             return self.handle_app(message, wparam, lparam);
         }
         if window == self.toolbar.hwnd {
             return self.handle_toolbar(message, lparam);
+        }
+        if window == self.picker.hwnd {
+            return self.handle_picker(message, lparam);
         }
         let index = self.overlays.iter().position(|overlay| overlay.hwnd == window)?;
         self.handle_overlay(index, message, wparam, lparam)
@@ -531,17 +681,14 @@ impl App {
     fn handle_toolbar(&mut self, message: u32, lparam: LPARAM) -> Option<LRESULT> {
         let (x, y) = (lparam.0 as i16 as i32, (lparam.0 >> 16) as i16 as i32);
         match message {
-            WM_LBUTTONDOWN => match self.toolbar.hit(x, y) {
-                Some(Button::Tool(tool)) => self.pick(tool),
-                Some(Button::Board) => self.cycle_board(),
-                Some(Button::Color(index)) => self.pick_color(index),
-                Some(Button::Thinner) => self.step_size(-1),
-                Some(Button::Thicker) => self.step_size(1),
-                Some(Button::Undo) => self.undo(),
-                Some(Button::Clear) => self.clear_all(),
-                Some(Button::Done) => self.leave(),
-                None => {}
-            },
+            WM_LBUTTONDOWN => {
+                let hit = self.toolbar.hit(x, y);
+                // Any other button puts the colour picker away, as a click on the drawing layer does.
+                if hit != Some(Button::Color) {
+                    self.close_picker();
+                }
+                self.toolbar_button(hit);
+            }
             WM_MOUSEMOVE => {
                 if self.toolbar.hover(x, y) {
                     self.render_toolbar();
@@ -559,6 +706,8 @@ impl App {
         let tool = self.preferences.tool;
         let marking = self.drawing && self.effect.is_none();
         match message {
+            // The click that puts the colour picker away draws nothing.
+            WM_LBUTTONDOWN if self.picker.shown => self.close_picker(),
             WM_LBUTTONDOWN if marking => {
                 let overlay = &mut self.overlays[index];
                 let at = overlay.local(x, y);
@@ -611,6 +760,11 @@ impl App {
     /// The keys of drawing mode. False for one it does not use.
     fn key(&mut self, key: u16) -> bool {
         let control = unsafe { GetKeyState(VK_CONTROL.0 as i32) } < 0;
+        // Typing a code: every key but Esc goes to the field, so no letter switches the tool.
+        if self.picker.editing && VIRTUAL_KEY(key) != VK_ESCAPE {
+            self.hex_key(VIRTUAL_KEY(key), control);
+            return true;
+        }
         match VIRTUAL_KEY(key) {
             VK_ESCAPE => self.escape(),
             VK_DELETE | VK_BACK => self.clear_all(),
@@ -627,6 +781,40 @@ impl App {
             _ => return false,
         }
         true
+    }
+}
+
+/// Raises Windows' colour dialog over the drawing layer as it opens.
+unsafe extern "system" fn raise_dialog(dialog: HWND, message: u32, _: WPARAM, _: LPARAM) -> usize {
+    if message == WM_INITDIALOG {
+        unsafe {
+            let _ = SetWindowPos(dialog, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+        }
+    }
+    0
+}
+
+/// The text on the clipboard, or nothing.
+fn clipboard_text() -> String {
+    unsafe {
+        if OpenClipboard(None).is_err() {
+            return String::new();
+        }
+        let mut text = String::new();
+        if let Ok(handle) = GetClipboardData(CF_UNICODETEXT) {
+            let memory = HGLOBAL(handle.0);
+            let start = GlobalLock(memory) as *const u16;
+            if !start.is_null() {
+                let mut length = 0;
+                while *start.add(length) != 0 {
+                    length += 1;
+                }
+                text = String::from_utf16_lossy(std::slice::from_raw_parts(start, length));
+                let _ = GlobalUnlock(memory);
+            }
+        }
+        let _ = CloseClipboard();
+        text
     }
 }
 

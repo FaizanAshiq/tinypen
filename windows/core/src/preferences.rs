@@ -113,11 +113,20 @@ pub struct Preferences {
     /// The marking tool in hand when drawing mode starts.
     pub tool: Tool,
     pub show_tray_icon: bool,
+    /// Custom colours picked lately, newest first, shown beside the six.
+    pub recent_colors: Vec<String>,
 }
 
 impl Default for Preferences {
     fn default() -> Self {
-        Preferences { hotkeys: HotKeys::DEFAULTS, color: Palette::COLORS[0].into(), size: 1, tool: Tool::Pen, show_tray_icon: true }
+        Preferences {
+            hotkeys: HotKeys::DEFAULTS,
+            color: Palette::COLORS[0].into(),
+            size: 1,
+            tool: Tool::Pen,
+            show_tray_icon: true,
+            recent_colors: Vec::new(),
+        }
     }
 }
 
@@ -159,8 +168,8 @@ impl Preferences {
         let color = object
             .get("color")
             .and_then(Value::as_str)
-            .filter(|hex| hex.len() == 7 && hex.starts_with('#') && u32::from_str_radix(&hex[1..], 16).is_ok())
-            .map(str::to_ascii_uppercase)
+            .filter(|hex| hex.starts_with('#'))
+            .and_then(Palette::hex_typed)
             .unwrap_or(defaults.color);
         let size = object.get("size").and_then(Value::as_u64).map_or(defaults.size, |size| (size as usize).min(WIDTHS.len() - 1));
         let tool = object
@@ -169,7 +178,13 @@ impl Preferences {
             .filter(|tool| tool.draws_marks())
             .unwrap_or(defaults.tool);
         let show_tray_icon = object.get("showTrayIcon").and_then(Value::as_bool).unwrap_or(defaults.show_tray_icon);
-        Preferences { hotkeys, color, size, tool, show_tray_icon }
+        let recent_colors = match object.get("recentColors") {
+            Some(Value::Array(list)) => {
+                list.iter().filter_map(Value::as_str).filter_map(Palette::hex_typed).take(Palette::RECENT_COUNT).collect()
+            }
+            _ => Vec::new(),
+        };
+        Preferences { hotkeys, color, size, tool, show_tray_icon, recent_colors }
     }
 
     /// Written to a file beside it first, then moved over, so a crash mid write never leaves half a file.
@@ -187,6 +202,7 @@ impl Preferences {
         object.insert("size".into(), Value::from(self.size));
         object.insert("tool".into(), serde_json::to_value(self.tool).unwrap_or(Value::Null));
         object.insert("showTrayIcon".into(), Value::Bool(self.show_tray_icon));
+        object.insert("recentColors".into(), Value::from(self.recent_colors.clone()));
         let text = serde_json::to_string_pretty(&Value::Object(object)).unwrap_or_default();
         let temporary = path.with_extension("json.new");
         std::fs::write(&temporary, text)?;
@@ -250,6 +266,18 @@ mod tests {
         assert_eq!(loaded.size, 1);
         assert_eq!(loaded.color, Preferences::default().color);
         assert!(loaded.hotkeys.draw.is_none());
+    }
+
+    #[test]
+    fn recent_colours_are_saved_and_an_older_file_has_none() {
+        let path = file("recent");
+        let preferences = Preferences { color: "#1E90FF".into(), recent_colors: vec!["#1E90FF".into()], ..Preferences::default() };
+        preferences.save(&path).unwrap();
+        assert_eq!(Preferences::load(&path), preferences);
+        std::fs::write(&path, r##"{"size": 1, "recentColors": ["#00ff00", "green", "#000001", "#000002", "#000003"]}"##).unwrap();
+        assert_eq!(Preferences::load(&path).recent_colors, vec!["#00FF00", "#000001", "#000002"]);
+        std::fs::write(&path, r#"{"size": 1}"#).unwrap();
+        assert!(Preferences::load(&path).recent_colors.is_empty());
     }
 
     #[test]

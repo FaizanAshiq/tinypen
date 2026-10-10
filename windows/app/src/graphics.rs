@@ -2,13 +2,14 @@
 //! window, and a see-through surface per window drawn on the graphics card.
 
 use tinypen_core::{arrow_outline, smooth, Mark, MarkKind, Palette, Point};
-use windows::core::{Interface, Result};
+use windows::core::{w, Interface, Result};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Direct2D::Common::*;
 use windows::Win32::Graphics::Direct2D::*;
 use windows::Win32::Graphics::Direct3D::*;
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::DirectComposition::*;
+use windows::Win32::Graphics::DirectWrite::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
 use windows::Win32::Graphics::Dxgi::*;
 use windows_numerics::{Matrix3x2, Vector2};
@@ -21,6 +22,9 @@ pub struct Graphics {
     pub composition: IDCompositionDevice,
     pub round: ID2D1StrokeStyle1,
     pub flat: ID2D1StrokeStyle1,
+    write: IDWriteFactory,
+    /// Monospaced, for the colour picker's hex field.
+    code: IDWriteTextFormat,
 }
 
 impl Graphics {
@@ -61,7 +65,11 @@ impl Graphics {
             };
             let round = style(D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND)?;
             let flat = style(D2D1_CAP_STYLE_FLAT, D2D1_LINE_JOIN_ROUND)?;
-            Ok(Graphics { factory, context, dxgi, dxgi_factory, composition, round, flat })
+            let write: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)?;
+            let code = write.CreateTextFormat(w!("Consolas"), None, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+                                              DWRITE_FONT_STRETCH_NORMAL, 13.0, w!("en-us"))?;
+            code.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER)?;
+            Ok(Graphics { factory, context, dxgi, dxgi_factory, composition, round, flat, write, code })
         }
     }
 
@@ -92,6 +100,26 @@ impl Graphics {
     pub fn brush(&self, hex: &str, alpha: f32) -> Result<ID2D1SolidColorBrush> {
         let (r, g, b) = Palette::rgb(hex);
         unsafe { self.context.CreateSolidColorBrush(&D2D1_COLOR_F { r, g, b, a: alpha }, None) }
+    }
+
+    /// `text` in the monospaced face, from the left of `rect` and centred down it.
+    pub fn draw_code(&self, text: &str, rect: D2D_RECT_F, brush: &ID2D1SolidColorBrush) {
+        let text: Vec<u16> = text.encode_utf16().collect();
+        unsafe {
+            self.context.DrawText(&text, &self.code, &rect, brush, D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL);
+        }
+    }
+
+    /// How wide `text` is in the monospaced face, to put the caret after it.
+    pub fn code_width(&self, text: &str) -> f32 {
+        let text: Vec<u16> = text.encode_utf16().collect();
+        let mut metrics = DWRITE_TEXT_METRICS::default();
+        unsafe {
+            match self.write.CreateTextLayout(&text, &self.code, f32::MAX, f32::MAX).and_then(|layout| layout.GetMetrics(&mut metrics)) {
+                Ok(()) => metrics.widthIncludingTrailingWhitespace,
+                Err(_) => 0.0,
+            }
+        }
     }
 
     /// A path through `points`, smoothed, open or closed.

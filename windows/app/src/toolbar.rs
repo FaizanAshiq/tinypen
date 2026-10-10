@@ -4,10 +4,10 @@
 use crate::graphics::{Graphics, Surface};
 use crate::icons::{self, Button};
 use crate::system::Monitor;
-use tinypen_core::{Palette, Tool};
-use windows::core::{w, Result, PCWSTR, PWSTR};
-use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, RECT};
-use windows::Win32::UI::Controls::*;
+use crate::tips::Tips;
+use tinypen_core::{Tool, WIDTHS};
+use windows::core::{w, Result, PCWSTR};
+use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, RECT};
 use windows::Win32::Graphics::Direct2D::Common::*;
 use windows::Win32::Graphics::Direct2D::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -15,7 +15,6 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 pub const TOOLBAR_CLASS: PCWSTR = w!("TinypenToolbar");
 
 const BUTTON: (f32, f32) = (32.0, 28.0);
-const DOT: f32 = 24.0;
 const INSIDE: f32 = 2.0;
 const BETWEEN: f32 = 14.0;
 const PADDING: (f32, f32) = (12.0, 6.0);
@@ -24,8 +23,8 @@ const PADDING: (f32, f32) = (12.0, 6.0);
 pub struct Look {
     pub chosen: Tool,
     pub color: String,
-    pub thinner: bool,
-    pub thicker: bool,
+    /// Index into `WIDTHS`.
+    pub size: usize,
     pub has_marks: bool,
 }
 
@@ -36,9 +35,7 @@ pub struct Toolbar {
     buttons: Vec<(Button, D2D_RECT_F)>,
     size: (f32, f32),
     hovered: Option<usize>,
-    /// Each button's name and key, shown as the pointer rests on it.
-    tips: HWND,
-    tip_texts: Vec<Vec<u16>>,
+    tips: Tips,
 }
 
 impl Toolbar {
@@ -60,26 +57,8 @@ impl Toolbar {
                 None,
             )?;
             SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA)?;
-            let _ = InitCommonControlsEx(&INITCOMMONCONTROLSEX {
-                dwSize: size_of::<INITCOMMONCONTROLSEX>() as u32,
-                dwICC: ICC_WIN95_CLASSES,
-            });
-            let tips = CreateWindowExW(
-                WS_EX_TOPMOST,
-                TOOLTIPS_CLASSW,
-                None,
-                WS_POPUP | WINDOW_STYLE(TTS_ALWAYSTIP | TTS_NOPREFIX),
-                0,
-                0,
-                0,
-                0,
-                Some(hwnd),
-                None,
-                Some(instance),
-                None,
-            )?;
-            let tip_texts = buttons.iter().map(|(button, _)| button.name().encode_utf16().chain([0]).collect()).collect();
-            Ok(Toolbar { hwnd, surface: None, scale: 0.0, buttons, size, hovered: None, tips, tip_texts })
+            let tips = Tips::new(hwnd, instance)?;
+            Ok(Toolbar { hwnd, surface: None, scale: 0.0, buttons, size, hovered: None, tips })
         }
     }
 
@@ -96,34 +75,25 @@ impl Toolbar {
         if self.surface.is_none() || self.scale != scale {
             self.surface = Some(graphics.surface(self.hwnd, width as u32, height as u32)?);
             self.scale = scale;
-            self.place_tips();
+            let names: Vec<(String, D2D_RECT_F)> = self.buttons.iter().map(|(button, rect)| (button.name(), *rect)).collect();
+            self.tips.place(&names, scale);
         }
         Ok(())
     }
 
-    /// One tip per button, over the button's pixels at the current scale.
-    fn place_tips(&mut self) {
-        for (index, (_, rect)) in self.buttons.iter().enumerate() {
-            let mut info = TTTOOLINFOW {
-                cbSize: size_of::<TTTOOLINFOW>() as u32,
-                uFlags: TTF_SUBCLASS,
-                hwnd: self.hwnd,
-                uId: index,
-                rect: RECT {
-                    left: (rect.left * self.scale) as i32,
-                    top: (rect.top * self.scale) as i32,
-                    right: (rect.right * self.scale) as i32,
-                    bottom: (rect.bottom * self.scale) as i32,
-                },
-                lpszText: PWSTR(self.tip_texts[index].as_mut_ptr()),
-                ..Default::default()
-            };
-            let pointer = Some(LPARAM(&mut info as *mut TTTOOLINFOW as isize));
-            unsafe {
-                SendMessageW(self.tips, TTM_DELTOOLW, None, pointer);
-                SendMessageW(self.tips, TTM_ADDTOOLW, None, pointer);
-            }
-        }
+    /// The colour button on screen, in physical pixels, for the colour picker to hang from.
+    pub fn color_button(&self) -> Option<(RECT, f32)> {
+        let (_, rect) = self.buttons.iter().find(|(button, _)| *button == Button::Color)?;
+        let mut window = RECT::default();
+        unsafe { GetWindowRect(self.hwnd, &mut window).ok()? };
+        let at = |value: f32| (value * self.scale) as i32;
+        let on_screen = RECT {
+            left: window.left + at(rect.left),
+            top: window.top + at(rect.top),
+            right: window.left + at(rect.right),
+            bottom: window.top + at(rect.bottom),
+        };
+        Some((on_screen, self.scale))
     }
 
     /// Back over the drawing layers, which a new layer can cover.
@@ -167,22 +137,20 @@ impl Toolbar {
             context.FillRoundedRectangle(&ground, &graphics.brush("#202020", 0.94)?);
             context.DrawRoundedRectangle(&ground, &graphics.brush("#FFFFFF", 0.14)?, 1.0, None);
             for (index, &(button, rect)) in self.buttons.iter().enumerate() {
-                let chosen = matches!(button, Button::Tool(tool) if tool == look.chosen);
-                let enabled = match button {
-                    Button::Thinner => look.thinner,
-                    Button::Thicker => look.thicker,
-                    Button::Undo | Button::Clear => look.has_marks,
-                    _ => true,
+                let chosen = match button {
+                    Button::Tool(tool) => tool == look.chosen,
+                    Button::Size(size) => size == look.size,
+                    _ => false,
                 };
+                let enabled = !matches!(button, Button::Undo | Button::Clear) || look.has_marks;
                 let cell = D2D1_ROUNDED_RECT { rect, radiusX: 13.0, radiusY: 13.0 };
                 if chosen {
                     context.FillRoundedRectangle(&cell, &graphics.brush("#0078D4", 1.0)?);
-                } else if enabled && self.hovered == Some(index) && !matches!(button, Button::Color(_)) {
+                } else if enabled && self.hovered == Some(index) {
                     context.FillRoundedRectangle(&cell, &graphics.brush("#FFFFFF", 0.12)?);
                 }
                 let ink = graphics.brush("#FFFFFF", if enabled { 1.0 } else { 0.35 })?;
-                let chosen_color = matches!(button, Button::Color(index) if Palette::COLORS[index] == look.color);
-                icons::draw(graphics, button, rect, &ink, chosen_color)?;
+                icons::draw(graphics, button, rect, &ink, &look.color)?;
             }
             Ok(())
         })
@@ -190,13 +158,13 @@ impl Toolbar {
 }
 
 /// Every button's place, in device-independent pixels, and the toolbar's size: the marking tools,
-/// the pointer tools and the board, the colours, size, undo and clear, and done.
+/// the pointer tools and the board, the colour, the five sizes, undo and clear, and done.
 fn layout() -> (Vec<(Button, D2D_RECT_F)>, (f32, f32)) {
     let groups: Vec<Vec<Button>> = vec![
         vec![Button::Tool(Tool::Pen), Button::Tool(Tool::Highlighter), Button::Tool(Tool::Arrow), Button::Tool(Tool::Box)],
         vec![Button::Tool(Tool::Laser), Button::Tool(Tool::Spotlight), Button::Tool(Tool::Zoom), Button::Board],
-        (0..Palette::COLORS.len()).map(Button::Color).collect(),
-        vec![Button::Thinner, Button::Thicker],
+        vec![Button::Color],
+        (0..WIDTHS.len()).map(Button::Size).collect(),
         vec![Button::Undo, Button::Clear],
         vec![Button::Done],
     ];
@@ -210,9 +178,8 @@ fn layout() -> (Vec<(Button, D2D_RECT_F)>, (f32, f32)) {
             if index > 0 {
                 x += INSIDE;
             }
-            let width = if matches!(button, Button::Color(_)) { DOT } else { BUTTON.0 };
-            buttons.push((button, D2D_RECT_F { left: x, top: PADDING.1, right: x + width, bottom: PADDING.1 + BUTTON.1 }));
-            x += width;
+            buttons.push((button, D2D_RECT_F { left: x, top: PADDING.1, right: x + BUTTON.0, bottom: PADDING.1 + BUTTON.1 }));
+            x += BUTTON.0;
         }
     }
     (buttons, (x + PADDING.0, BUTTON.1 + PADDING.1 * 2.0))

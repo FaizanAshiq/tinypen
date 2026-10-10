@@ -12,7 +12,11 @@ mod lens;
 #[cfg(windows)]
 mod overlay;
 #[cfg(windows)]
+mod picker;
+#[cfg(windows)]
 mod system;
+#[cfg(windows)]
+mod tips;
 #[cfg(windows)]
 mod toolbar;
 #[cfg(windows)]

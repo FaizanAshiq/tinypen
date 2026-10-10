@@ -1,7 +1,7 @@
 //! The toolbar's icons, drawn as shapes so they are sharp at every scale and need no font.
 
 use crate::graphics::{point, Graphics};
-use tinypen_core::{arrow_outline, Palette, Point, Tool};
+use tinypen_core::{arrow_outline, Point, Tool, WIDTHS};
 use windows::core::Result;
 use windows::Win32::Graphics::Direct2D::Common::*;
 use windows::Win32::Graphics::Direct2D::*;
@@ -10,9 +10,10 @@ use windows::Win32::Graphics::Direct2D::*;
 pub enum Button {
     Tool(Tool),
     Board,
-    Color(usize),
-    Thinner,
-    Thicker,
+    /// The colour in hand, which opens the colour picker.
+    Color,
+    /// One of the five sizes, an index into `WIDTHS`.
+    Size(usize),
     Undo,
     Clear,
     Done,
@@ -24,9 +25,8 @@ impl Button {
         match self {
             Button::Tool(tool) => format!("{} ({})", tool.title(), tool.key().to_ascii_uppercase()),
             Button::Board => "Board, white then black (W)".into(),
-            Button::Color(index) => format!("{} ({})", Palette::NAMES[index], index + 1),
-            Button::Thinner => "Thinner ([)".into(),
-            Button::Thicker => "Thicker (])".into(),
+            Button::Color => "Colour, 1 to 6 for the six".into(),
+            Button::Size(index) => format!("Size {} of {}, [ and ] to step", index + 1, WIDTHS.len()),
             Button::Undo => "Undo (Ctrl+Z)".into(),
             Button::Clear => "Clear (Delete)".into(),
             Button::Done => "Clear and stop drawing".into(),
@@ -34,8 +34,8 @@ impl Button {
     }
 }
 
-/// Draws `button`'s icon centred in `cell`, in `ink`.
-pub fn draw(graphics: &Graphics, button: Button, cell: D2D_RECT_F, ink: &ID2D1SolidColorBrush, chosen_color: bool) -> Result<()> {
+/// Draws `button`'s icon centred in `cell`, in `ink`; the colour button shows `color`.
+pub fn draw(graphics: &Graphics, button: Button, cell: D2D_RECT_F, ink: &ID2D1SolidColorBrush, color: &str) -> Result<()> {
     let (cx, cy) = ((cell.left + cell.right) / 2.0, (cell.top + cell.bottom) / 2.0);
     let at = |x: f32, y: f32| point(Point::new(cx + x, cy + y));
     let context = &graphics.context;
@@ -79,19 +79,12 @@ pub fn draw(graphics: &Graphics, button: Button, cell: D2D_RECT_F, ink: &ID2D1So
             Button::Board => {
                 context.FillRectangle(&D2D_RECT_F { left: cx - 7.0, top: cy - 5.0, right: cx + 7.0, bottom: cy + 5.0 }, ink);
             }
-            Button::Color(index) => {
-                let dot = D2D1_ELLIPSE { point: at(0.0, 0.0), radiusX: 8.0, radiusY: 8.0 };
-                context.FillEllipse(&dot, &graphics.brush(Palette::COLORS[index], 1.0)?);
-                context.DrawEllipse(&dot, &graphics.brush("#FFFFFF", 0.35)?, 1.0, round);
-                if chosen_color {
-                    let ring = D2D1_ELLIPSE { point: at(0.0, 0.0), radiusX: 11.0, radiusY: 11.0 };
-                    context.DrawEllipse(&ring, &graphics.brush("#4CC2FF", 1.0)?, 2.0, round);
-                }
-            }
-            Button::Thinner => context.DrawLine(at(-6.0, 0.0), at(6.0, 0.0), ink, 1.8, round),
-            Button::Thicker => {
-                context.DrawLine(at(-6.0, 0.0), at(6.0, 0.0), ink, 1.8, round);
-                context.DrawLine(at(0.0, -6.0), at(0.0, 6.0), ink, 1.8, round);
+            Button::Color => swatch(graphics, cell, color, false)?,
+            Button::Size(index) => {
+                // A line as heavy as the size, as the Mac app shows it.
+                let weight = 1.0 + index as f32 * 2.0;
+                let reach = 9.0 - weight / 2.0;
+                context.DrawLine(at(-reach, 0.0), at(reach, 0.0), ink, weight, round);
             }
             Button::Undo => {
                 let geometry = graphics.factory.CreatePathGeometry()?;
@@ -116,6 +109,50 @@ pub fn draw(graphics: &Graphics, button: Button, cell: D2D_RECT_F, ink: &ID2D1So
         }
     }
     Ok(())
+}
+
+/// A colour as a dot, ringed when it is the one in hand.
+pub fn swatch(graphics: &Graphics, cell: D2D_RECT_F, color: &str, chosen: bool) -> Result<()> {
+    let centre = point(Point::new((cell.left + cell.right) / 2.0, (cell.top + cell.bottom) / 2.0));
+    let dot = D2D1_ELLIPSE { point: centre, radiusX: 8.0, radiusY: 8.0 };
+    unsafe {
+        graphics.context.FillEllipse(&dot, &graphics.brush(color, 1.0)?);
+        graphics.context.DrawEllipse(&dot, &graphics.brush("#FFFFFF", 0.35)?, 1.0, &graphics.round);
+        if chosen {
+            let ring = D2D1_ELLIPSE { point: centre, radiusX: 11.5, radiusY: 11.5 };
+            graphics.context.DrawEllipse(&ring, &graphics.brush("#4CC2FF", 1.0)?, 2.0, &graphics.round);
+        }
+    }
+    Ok(())
+}
+
+/// A hue wheel, for any colour.
+pub fn wheel(graphics: &Graphics, cell: D2D_RECT_F) -> Result<()> {
+    let centre = Point::new((cell.left + cell.right) / 2.0, (cell.top + cell.bottom) / 2.0);
+    let steps = 36;
+    let rim = |at: f32| {
+        let angle = at / steps as f32 * std::f32::consts::TAU;
+        Point::new(centre.x + 9.0 * angle.cos(), centre.y + 9.0 * angle.sin())
+    };
+    for step in 0..steps {
+        // A little over a step wide, so no seam shows between wedges.
+        let wedge = graphics.path(&[centre, rim(step as f32), rim(step as f32 + 1.05)], false, true)?;
+        let brush = graphics.brush(&hue_hex(step as f32 / steps as f32), 1.0)?;
+        unsafe {
+            graphics.context.FillGeometry(&wedge, &brush, None);
+        }
+    }
+    Ok(())
+}
+
+/// A fully saturated colour at `hue`, 0 to 1 round the wheel, as "#RRGGBB".
+fn hue_hex(hue: f32) -> String {
+    let channel = |offset: f32| {
+        let k = (offset + hue * 6.0) % 6.0;
+        let value = 1.0 - (k.min(4.0 - k).clamp(0.0, 1.0)) * 0.85;
+        (value * 255.0).round() as u8
+    };
+    format!("#{:02X}{:02X}{:02X}", channel(5.0), channel(3.0), channel(1.0))
 }
 
 fn layer(opacity: f32) -> D2D1_LAYER_PARAMETERS1 {
