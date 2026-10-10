@@ -43,6 +43,13 @@ struct ScreenTests {
         #expect(Screen(drawing: true, effect: nil).takesMouse)
     }
 
+    /// Reported: with marks on screen, Esc in Settings erased them instead of backing out of a hotkey
+    /// being recorded. While Tinypen's own window wants the keys, none is held.
+    @Test func noKeyIsHeldWhileTinypensOwnWindowWantsThem() {
+        #expect(Screen(drawing: false, effect: nil, hasMarks: true, keysPaused: true).heldKeys == HeldKeys.none)
+        #expect(Screen(drawing: false, effect: .laser, keysPaused: true).heldKeys == HeldKeys.none)
+    }
+
     /// Option is everyone's key: with nothing to size, it never stops a click reaching an app.
     @Test func optionAloneTakesNothing() {
         #expect(!Screen(drawing: false, effect: .laser, sizing: true).takesMouse)

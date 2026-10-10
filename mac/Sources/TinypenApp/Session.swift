@@ -21,11 +21,13 @@ final class Session {
     private var overlays: [Overlay] = []
     private let zoom = ZoomFeed()
     private lazy var toolbar = Toolbar(session: self)
-    /// The displays drawn on, in order, so undo takes back the newest mark wherever it is.
-    private var history: [CGDirectDisplayID] = []
+    /// Where each mark was drawn, in order, so undo takes back the newest one showing, wherever it is.
+    private var history: [(display: CGDirectDisplayID, onBoard: Bool)] = []
     private var lastWasClear = false
     /// The colour picker is open, and its hex field may want the keys.
     private var pickingColor = false
+    /// Tinypen's own window wants the keys: Settings recording a hotkey, or a message.
+    private var keysPaused = false
     /// Option is held, so the spotlight or the lens takes the scroll that sizes it.
     private var sizing = false
     /// A scroll while drawing goes on to the app under the drawing.
@@ -119,6 +121,7 @@ final class Session {
     /// that had it, unless Tinypen is about to show a window of its own.
     func stopDrawing(returningFocus: Bool = true) {
         overlays.forEach { $0.view.finishStroke() }
+        overlays.forEach { $0.view.closeBoard() }
         stopPassingScroll()
         drawing = false
         toolbar.hide()
@@ -176,18 +179,27 @@ final class Session {
         refresh()
     }
 
+    /// Something to undo: what Delete or Esc cleared, or a mark showing. Reported: the toolbar's Undo
+    /// was off after Delete, just when it had something to bring back.
+    var canUndo: Bool {
+        lastWasClear || history.contains { overlay(for: $0.display)?.view.canvas.showsBoard == $0.onBoard }
+    }
+
+    /// After Delete or Esc, everything they cleared comes back; otherwise the newest mark showing goes.
+    /// Reported: with the board open, undo spent the turn of a mark hidden under it, which could then
+    /// never be undone.
     func undo() {
         if lastWasClear {
             overlays.forEach { $0.view.undo() }
             lastWasClear = false
-        } else if let id = history.popLast() {
-            overlay(for: id)?.view.undo()
+        } else if let index = history.lastIndex(where: { overlay(for: $0.display)?.view.canvas.showsBoard == $0.onBoard }) {
+            overlay(for: history.remove(at: index).display)?.view.undo()
         }
         refresh()
     }
 
-    func drew(on id: CGDirectDisplayID) {
-        history.append(id)
+    func drew(on id: CGDirectDisplayID, onBoard: Bool) {
+        history.append((id, onBoard))
         lastWasClear = false
         toolbar.refresh()
         onChange?()
@@ -220,6 +232,13 @@ final class Session {
         preferences.recentColors = Palette.recent(adding: preferences.colorHex, to: preferences.recentColors)
         holdKeys()
         takeKeys()
+    }
+
+    /// Tinypen's own window wants the keys, or is done with them. Reported: with marks on screen, Esc
+    /// in Settings erased them instead of backing out of a hotkey being recorded.
+    func pauseKeys(_ paused: Bool) {
+        keysPaused = paused
+        holdKeys()
     }
 
     /// Where the toolbar was dragged to, to put it there next time.
@@ -310,7 +329,7 @@ final class Session {
 
     private var screen: Screen {
         Screen(drawing: drawing, effect: effect, hasMarks: hasMarks, pickingColor: pickingColor, sizing: sizing,
-               passingScroll: passingScroll)
+               passingScroll: passingScroll, keysPaused: keysPaused)
     }
 
     private func holdKeys() {

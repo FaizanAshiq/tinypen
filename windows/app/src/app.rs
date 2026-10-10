@@ -110,8 +110,9 @@ struct App {
     effect: Option<Tool>,
     spotlight_radius: f32,
     magnification: f32,
-    /// The monitors drawn on, in order, so undo takes back the newest mark wherever it is.
-    history: Vec<isize>,
+    /// Where each mark was drawn, its monitor and whether on the board, in order, so undo takes back
+    /// the newest one showing, wherever it is.
+    history: Vec<(isize, bool)>,
     last_was_clear: bool,
     previous: Option<HWND>,
     taken: Vec<HotKeyAction>,
@@ -324,6 +325,8 @@ impl App {
     fn stop_drawing(&mut self) {
         self.close_picker();
         self.finish_strokes();
+        // The board closes, keeping its marks: left open, it would hide every app the clicks now reach.
+        self.overlays.iter_mut().for_each(Overlay::close_board);
         self.stop_passing_scroll();
         self.drawing = false;
         self.toolbar.hide();
@@ -360,7 +363,7 @@ impl App {
     fn finish_strokes(&mut self) {
         for overlay in &mut self.overlays {
             if overlay.finish_stroke() {
-                self.history.push(overlay.monitor.handle);
+                self.history.push((overlay.monitor.handle, overlay.canvas.shows_board()));
                 self.last_was_clear = false;
             }
         }
@@ -400,14 +403,30 @@ impl App {
         self.refresh();
     }
 
+    /// The monitor and the board a mark was drawn on still show it.
+    fn showing(&self, (handle, on_board): (isize, bool)) -> bool {
+        self.overlays.iter().any(|overlay| overlay.monitor.handle == handle && overlay.canvas.shows_board() == on_board)
+    }
+
+    /// Something to undo: what Delete or Esc cleared, or a mark showing. Reported on the Mac: the
+    /// toolbar's Undo was off after Delete, just when it had something to bring back.
+    fn can_undo(&self) -> bool {
+        self.last_was_clear || self.history.iter().any(|&entry| self.showing(entry))
+    }
+
+    /// After Delete or Esc, everything they cleared comes back; otherwise the newest mark showing goes.
+    /// Reported on the Mac: with the board open, undo spent the turn of a mark hidden under it, which
+    /// could then never be undone.
     fn undo(&mut self) {
         if self.last_was_clear {
             self.overlays.iter_mut().for_each(Overlay::undo);
             self.last_was_clear = false;
-        } else if let Some(handle) = self.history.pop()
-            && let Some(overlay) = self.overlays.iter_mut().find(|overlay| overlay.monitor.handle == handle) {
+        } else if let Some(index) = self.history.iter().rposition(|&entry| self.showing(entry)) {
+            let (handle, _) = self.history.remove(index);
+            if let Some(overlay) = self.overlays.iter_mut().find(|overlay| overlay.monitor.handle == handle) {
                 overlay.undo();
             }
+        }
         self.refresh();
     }
 
@@ -683,6 +702,7 @@ impl App {
             color: self.preferences.color.clone(),
             size: self.preferences.size,
             has_marks: self.has_marks(),
+            can_undo: self.can_undo(),
         };
         let _ = self.toolbar.render(&self.graphics, &look);
         let _ = self.picker.render(&self.graphics, &self.preferences.color);
@@ -873,7 +893,7 @@ impl App {
                 let overlay = &mut self.overlays[index];
                 let at = overlay.local(x, y);
                 if overlay.release(at, tool, shift, &self.preferences) {
-                    self.history.push(overlay.monitor.handle);
+                    self.history.push((overlay.monitor.handle, overlay.canvas.shows_board()));
                     self.last_was_clear = false;
                 }
                 let scene = self.scene();

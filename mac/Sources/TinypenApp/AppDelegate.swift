@@ -76,7 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for action in HotKeyAction.allCases {
             let binding = session.preferences.hotkeys[action]
             var title = action.title
-            if let binding, taken.contains(action) { title += " (taken)" }
+            if binding != nil, taken.contains(action) { title += " (taken)" }
             // On the right, as macOS menus show shortcuts; written after the name only for a key
             // a menu cannot show there.
             let character = binding?.menuCharacter
@@ -138,6 +138,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             settings = SettingsWindowController(session: session, taken: { [weak self] in self?.taken ?? [] },
                                                 onRecordingChange: { [weak self] recording in
                                                     guard let self else { return }
+                                                    // Esc backs out of recording, so Tinypen lets go of it.
+                                                    session.pauseKeys(recording)
                                                     if recording {
                                                         hotkeys.unregisterAll()
                                                     } else {
@@ -161,7 +163,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             + "open Tinypen again. Nothing else in Tinypen needs it, and nothing it sees leaves your Mac."
         alert.addButton(withTitle: "Open System Settings")
         alert.addButton(withTitle: "Not Now")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        // Esc answers Not Now, so Tinypen lets go of it while the message shows.
+        session.pauseKeys(true)
+        let answer = alert.runModal()
+        session.pauseKeys(false)
+        guard answer == .alertFirstButtonReturn else { return }
         // Asking puts Tinypen in the Screen Recording list, where it can be switched on.
         ScreenAccess.request()
         ScreenAccess.openSettings()

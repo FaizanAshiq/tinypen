@@ -13,6 +13,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private let taken: () -> Set<HotKeyAction>
     /// Pauses Tinypen's hotkeys while a field records, so the combination reaches the field.
     private let onRecordingChange: (Bool) -> Void
+    private var returnTo: NSRunningApplication?
 
     init(session: Session, taken: @escaping () -> Set<HotKeyAction>, onRecordingChange: @escaping (Bool) -> Void) {
         self.session = session
@@ -124,9 +125,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     /// The controller outlives the window, so a recorder left listening would reopen still listening.
     func windowWillClose(_ notification: Notification) {
         recorders.values.forEach { $0.stopRecording() }
+        returnTo?.activate(from: NSRunningApplication.current, options: [])
+        returnTo = nil
     }
 
+    /// The app in front gets the keyboard back when Settings closes. Reported: Tinypen stayed in front
+    /// with no window, and typing went nowhere until an app was clicked.
     func show() {
+        if let front = NSWorkspace.shared.frontmostApplication, front != NSRunningApplication.current { returnTo = front }
         load()
         window?.center()
         showWindow(nil)

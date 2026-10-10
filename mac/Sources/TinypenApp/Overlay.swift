@@ -55,11 +55,6 @@ final class Overlay {
     }
 }
 
-/// White or black, over the whole display, to sketch on.
-enum Board {
-    case white, black
-}
-
 /// Everything drawn on one display. Finished marks are drawn once into their own view and redrawn
 /// only when they change; the mark in progress and the pointer effects have views of their own,
 /// so a long session never slows the pen.
@@ -72,9 +67,7 @@ final class OverlayView: NSView {
     private let liveView = LiveView()
     let effects: EffectsView
 
-    private(set) var board: Board?
-    private var screenMarks = Marks()
-    private var boardMarks = Marks()
+    private(set) var canvas = Canvas()
     private var stroke = StrokeBuilder()
     private var dragStart: CGPoint?
 
@@ -102,47 +95,29 @@ final class OverlayView: NSView {
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    var marks: Marks { board == nil ? screenMarks : boardMarks }
-    var isEmpty: Bool { screenMarks.isEmpty && boardMarks.isEmpty && board == nil }
+    var isEmpty: Bool { canvas.isEmpty }
 
-    private func changeMarks(_ change: (inout Marks) -> Void) {
-        if board == nil { change(&screenMarks) } else { change(&boardMarks) }
-        marksView.marks = marks.all
+    /// The canvas changed, and the board and the marks show as it now says.
+    private func change(_ change: (inout Canvas) -> Void) {
+        change(&canvas)
+        boardView.isHidden = canvas.board == nil
+        boardView.layer?.backgroundColor = canvas.board == .black ? NSColor.black.cgColor : NSColor.white.cgColor
+        marksView.marks = canvas.marks
     }
 
-    func undo() { changeMarks { $0.undo() } }
-    func clear() { changeMarks { $0.clear() } }
+    func undo() { change { $0.undo() } }
+    func clear() { change { $0.clear() } }
+    func cycleBoard() { change { $0.cycleBoard() } }
+    func closeBoard() { change { $0.closeBoard() } }
 
-    /// Esc's first press: everything drawn gone, the board too. Undo brings the marks back.
     func erase() {
-        screenMarks.clear()
-        boardMarks.clear()
-        board = nil
-        boardView.isHidden = true
-        marksView.marks = screenMarks.all
+        change { $0.erase() }
         liveView.mark = nil
     }
 
-    /// Every mark gone, the board too: the screen as it was.
     func reset() {
-        screenMarks = Marks()
-        boardMarks = Marks()
-        board = nil
-        boardView.isHidden = true
-        marksView.marks = []
+        change { $0.reset() }
         liveView.mark = nil
-    }
-
-    /// White, then black, then off.
-    func cycleBoard() {
-        switch board {
-        case nil: board = .white
-        case .white: board = .black
-        case .black: board = nil
-        }
-        boardView.isHidden = board == nil
-        boardView.layer?.backgroundColor = board == .black ? NSColor.black.cgColor : NSColor.white.cgColor
-        marksView.marks = marks.all
     }
 
     // MARK: Drawing
@@ -178,8 +153,8 @@ final class OverlayView: NSView {
         guard dragStart != nil else { return }
         dragStart = nil
         if let mark = liveView.mark {
-            changeMarks { $0.add(mark) }
-            session.drew(on: displayID)
+            change { $0.add(mark) }
+            session.drew(on: displayID, onBoard: canvas.showsBoard)
         }
         liveView.mark = nil
     }
@@ -217,9 +192,9 @@ final class OverlayView: NSView {
     override func accessibilityRole() -> NSAccessibility.Role? { .group }
 
     override func accessibilityLabel() -> String? {
-        let count = marks.all.count
+        let count = canvas.marks.count
         let drawn = "Tinypen drawing, \(count) \(count == 1 ? "mark" : "marks")"
-        switch board {
+        switch canvas.board {
         case .white: return drawn + " on a white board"
         case .black: return drawn + " on a black board"
         case nil: return drawn

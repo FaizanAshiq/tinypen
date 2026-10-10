@@ -24,9 +24,12 @@ public struct Screen: Equatable, Sendable {
     /// A scroll came while drawing, and goes on to the app under the drawing until the scrolling
     /// pauses.
     public var passingScroll: Bool
+    /// Tinypen's own window wants the keys: Settings recording a hotkey, or a message.
+    public var keysPaused: Bool
 
     public init(drawing: Bool, effect: Tool?, hasMarks: Bool = false, pickingColor: Bool = false, sizing: Bool = false,
-                passingScroll: Bool = false) {
+                passingScroll: Bool = false, keysPaused: Bool = false) {
+        self.keysPaused = keysPaused
         self.drawing = drawing
         self.effect = effect
         self.hasMarks = hasMarks
@@ -48,6 +51,7 @@ public struct Screen: Equatable, Sendable {
     }
 
     public var heldKeys: HeldKeys {
+        if keysPaused { return .none }
         if takesClicks { return pickingColor ? .escape : .all }
         return drawing || effect != nil || hasMarks ? .escape : .none
     }

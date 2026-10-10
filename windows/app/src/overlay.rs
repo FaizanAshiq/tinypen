@@ -3,7 +3,7 @@
 
 use crate::graphics::{point, Graphics, Surface};
 use crate::system::Monitor;
-use tinypen_core::{highlighter_width, Drag, LaserTrail, Lens, Mark, MarkKind, Marks, Point, Preferences, StrokeBuilder, Tool};
+use tinypen_core::{highlighter_width, Board, Canvas, Drag, LaserTrail, Lens, Mark, MarkKind, Point, Preferences, StrokeBuilder, Tool};
 use windows::core::{w, Result, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND};
 use windows::Win32::Graphics::Direct2D::Common::*;
@@ -12,12 +12,6 @@ use windows::Win32::Graphics::Dxgi::Common::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 pub const OVERLAY_CLASS: PCWSTR = w!("TinypenOverlay");
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum Board {
-    White,
-    Black,
-}
 
 /// What every layer shows besides its marks.
 pub struct Scene {
@@ -30,9 +24,7 @@ pub struct Overlay {
     pub hwnd: HWND,
     pub monitor: Monitor,
     surface: Surface,
-    screen_marks: Marks,
-    board_marks: Marks,
-    pub board: Option<Board>,
+    pub canvas: Canvas,
     stroke: StrokeBuilder,
     drag_start: Option<Point>,
     live: Option<Mark>,
@@ -71,9 +63,7 @@ impl Overlay {
                 hwnd,
                 monitor,
                 surface,
-                screen_marks: Marks::default(),
-                board_marks: Marks::default(),
-                board: None,
+                canvas: Canvas::default(),
                 stroke: StrokeBuilder::default(),
                 drag_start: None,
                 live: None,
@@ -121,55 +111,42 @@ impl Overlay {
         }
     }
 
-    pub fn marks(&self) -> &Marks {
-        if self.board.is_none() { &self.screen_marks } else { &self.board_marks }
-    }
-
     pub fn is_empty(&self) -> bool {
-        self.screen_marks.is_empty() && self.board_marks.is_empty() && self.board.is_none()
+        self.canvas.is_empty()
     }
 
-    fn change(&mut self, change: impl FnOnce(&mut Marks)) {
-        if self.board.is_none() { change(&mut self.screen_marks) } else { change(&mut self.board_marks) }
+    /// The canvas changed, so the marks are drawn again as it now shows them.
+    fn change(&mut self, change: impl FnOnce(&mut Canvas)) {
+        change(&mut self.canvas);
         self.cache_dirty = true;
     }
 
     pub fn undo(&mut self) {
-        self.change(Marks::undo);
+        self.change(Canvas::undo);
     }
 
     pub fn clear(&mut self) {
-        self.change(Marks::clear);
+        self.change(Canvas::clear);
     }
 
-    /// Esc's first press: everything drawn gone, the board too. Undo brings the marks back.
+    pub fn cycle_board(&mut self) {
+        self.change(Canvas::cycle_board);
+    }
+
+    pub fn close_board(&mut self) {
+        self.change(Canvas::close_board);
+    }
+
     pub fn erase(&mut self) {
-        self.screen_marks.clear();
-        self.board_marks.clear();
-        self.board = None;
+        self.change(Canvas::erase);
         self.live = None;
-        self.cache_dirty = true;
     }
 
-    /// Every mark and the board gone: the screen as it was.
     pub fn reset(&mut self) {
-        self.screen_marks = Marks::default();
-        self.board_marks = Marks::default();
-        self.board = None;
+        self.change(Canvas::reset);
         self.live = None;
         self.drag_start = None;
         self.trail = LaserTrail::default();
-        self.cache_dirty = true;
-    }
-
-    /// White, then black, then off.
-    pub fn cycle_board(&mut self) {
-        self.board = match self.board {
-            None => Some(Board::White),
-            Some(Board::White) => Some(Board::Black),
-            Some(Board::Black) => None,
-        };
-        self.cache_dirty = true;
     }
 
     /// A point in this window's client pixels, in device-independent pixels.
@@ -234,7 +211,7 @@ impl Overlay {
         }
         match self.live.take() {
             Some(mark) => {
-                self.change(|marks| marks.add(mark));
+                self.change(|canvas| canvas.add(mark));
                 true
             }
             None => false,
@@ -279,7 +256,7 @@ impl Overlay {
             context.SetDpi(dpi, dpi);
             context.BeginDraw();
             context.Clear(Some(&D2D1_COLOR_F { r: 0.0, g: 0.0, b: 0.0, a: 0.0 }));
-            let drawn = self.marks().all().iter().try_for_each(|mark| graphics.draw_mark(mark));
+            let drawn = self.canvas.marks().iter().try_for_each(|mark| graphics.draw_mark(mark));
             context.EndDraw(None, None)?;
             context.SetTarget(None);
             drawn?;
@@ -292,7 +269,7 @@ impl Overlay {
         self.refresh_cache(graphics)?;
         let size = (self.surface.width as f32 / self.monitor.scale, self.surface.height as f32 / self.monitor.scale);
         let whole = D2D_RECT_F { left: 0.0, top: 0.0, right: size.0, bottom: size.1 };
-        let (board, cache, live, pointer) = (self.board, self.cache.clone(), self.live.clone(), self.pointer);
+        let (board, cache, live, pointer) = (self.canvas.board(), self.cache.clone(), self.live.clone(), self.pointer);
         let trail = self.trail.visible(scene.now);
         self.surface.frame(graphics, self.monitor.scale, |graphics| unsafe {
             let context = &graphics.context;

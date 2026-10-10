@@ -134,7 +134,7 @@ final class Toolbar: NSObject, NSPopoverDelegate {
         colorButton?.setAccessibilityLabel("Colour \(hex)")
         picker?.chosen = hex
         for (index, button) in sizeButtons.enumerated() { button.isChosen = index == session.preferences.size }
-        undo?.isEnabled = session.hasMarks
+        undo?.isEnabled = session.canUndo
         clear?.isEnabled = session.hasMarks
     }
 

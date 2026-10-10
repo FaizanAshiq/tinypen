@@ -28,6 +28,7 @@ pub struct Look {
     /// Index into `WIDTHS`.
     pub size: usize,
     pub has_marks: bool,
+    pub can_undo: bool,
 }
 
 pub struct Toolbar {
@@ -183,7 +184,11 @@ impl Toolbar {
                     Button::Size(size) => size == look.size,
                     _ => false,
                 };
-                let enabled = !matches!(button, Button::Undo | Button::Clear) || look.has_marks;
+                let enabled = match button {
+                    Button::Undo => look.can_undo,
+                    Button::Clear => look.has_marks,
+                    _ => true,
+                };
                 let cell = D2D1_ROUNDED_RECT { rect, radiusX: 13.0, radiusY: 13.0 };
                 if chosen {
                     context.FillRoundedRectangle(&cell, &graphics.brush("#0078D4", 1.0)?);
