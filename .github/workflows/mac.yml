@@ -1,0 +1,57 @@
+name: mac
+
+on:
+  pull_request:
+    paths: ['mac/**', '.github/workflows/mac.yml']
+  push:
+    branches: [main]
+    paths: ['mac/**', '.github/workflows/mac.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: mac
+    steps:
+      - uses: actions/checkout@v7
+      # test.sh wires in the Swift Testing macro plugin when only Command Line Tools are there.
+      - run: ./test.sh --no-parallel
+
+  # The Mac app for download, for Apple silicon and Intel, signed with the same release certificate
+  # as Tinysnap: macOS keeps Screen Recording, which zoom needs, for an app by its signature, so
+  # every version signed alike keeps it. Nothing is released from here.
+  package:
+    needs: test
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Release signing identity
+        env:
+          IDENTITY: ${{ secrets.MAC_SIGNING_P12 }}
+          PASSWORD: ${{ secrets.MAC_SIGNING_PASSWORD }}
+        run: |
+          [ -n "$IDENTITY" ] || { echo "No MAC_SIGNING_P12 secret: store Tinysnap's release identity in this repo's secrets." >&2; exit 1; }
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          security create-keychain -p ci "$keychain"
+          security set-keychain-settings "$keychain"
+          security unlock-keychain -p ci "$keychain"
+          echo "$IDENTITY" | base64 --decode > "$RUNNER_TEMP/identity.p12"
+          security import "$RUNNER_TEMP/identity.p12" -k "$keychain" -P "$PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/identity.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+      - name: Build
+        working-directory: mac
+        run: TINYPEN_UNIVERSAL=1 TINYPEN_SIGN_IDENTITY="Tinysnap Release" TINYPEN_REQUIRE_IDENTITY=1 ./build.sh release
+      - run: ditto -c -k --keepParent mac/dist/Tinypen.app Tinypen-mac.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Tinypen-mac
+          path: Tinypen-mac.zip
+          retention-days: 14

@@ -1,0 +1,69 @@
+name: windows
+
+on:
+  pull_request:
+    paths: ['windows/**', '.github/workflows/windows.yml']
+  push:
+    branches: [main]
+    paths: ['windows/**', '.github/workflows/windows.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v7
+      - run: cargo test -p tinypen-core
+
+  # Tinypen.exe for Intel and AMD PCs and for ARM ones, kept two weeks. Nothing is released from here.
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            arch: x64
+          - target: aarch64-pc-windows-msvc
+            arch: arm64
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup target add ${{ matrix.target }}
+      - run: cargo clippy -p tinypen --target ${{ matrix.target }} -- -D warnings
+      - run: cargo build --release -p tinypen --target ${{ matrix.target }}
+      - run: Copy-Item target/${{ matrix.target }}/release/tinypen.exe ../Tinypen-win-${{ matrix.arch }}.exe
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Tinypen-win-${{ matrix.arch }}
+          path: Tinypen-win-${{ matrix.arch }}.exe
+          retention-days: 14
+
+  # The x64 build run on a real Windows desktop and driven as a person would.
+  e2e:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: Tinypen-win-x64
+          path: build
+      - name: Drive Tinypen
+        shell: powershell
+        run: windows/e2e/drive.ps1 -Exe build/Tinypen-win-x64.exe -Shots shots
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-screenshots
+          path: shots/*
+          retention-days: 14
