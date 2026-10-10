@@ -1,13 +1,15 @@
-//! Drawing mode's floating toolbar, at the top of the monitor being drawn on. It never takes the
-//! keys from the drawing layer, so the tool keys keep working while it shows.
+//! Drawing mode's floating toolbar, on the monitor being drawn on: at the top in the middle until
+//! it is dragged by its background, then wherever it was dropped. It never takes the keys from the
+//! drawing layer, so the tool keys keep working while it shows.
 
 use crate::graphics::{Graphics, Surface};
 use crate::icons::{self, Button};
 use crate::system::Monitor;
 use crate::tips::Tips;
-use tinypen_core::{Tool, WIDTHS};
+use tinypen_core::{Rect, Tool, ToolbarSpot, WIDTHS};
 use windows::core::{w, Result, PCWSTR};
-use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, RECT};
+use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, POINT, RECT};
+use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows::Win32::Graphics::Direct2D::Common::*;
 use windows::Win32::Graphics::Direct2D::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -36,6 +38,8 @@ pub struct Toolbar {
     size: (f32, f32),
     hovered: Option<usize>,
     tips: Tips,
+    /// Where the pointer and the window were when a drag by the background began.
+    dragging: Option<(POINT, RECT)>,
 }
 
 impl Toolbar {
@@ -58,17 +62,16 @@ impl Toolbar {
             )?;
             SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA)?;
             let tips = Tips::new(hwnd, instance)?;
-            Ok(Toolbar { hwnd, surface: None, scale: 0.0, buttons, size, hovered: None, tips })
+            Ok(Toolbar { hwnd, surface: None, scale: 0.0, buttons, size, hovered: None, tips, dragging: None })
         }
     }
 
-    /// Centred at the top of `monitor`'s work area, 12 pixels down.
-    pub fn show(&mut self, graphics: &Graphics, monitor: &Monitor) -> Result<()> {
+    /// At `spot` on `monitor`'s work area, wholly on it; without one, centred at the top, 12 pixels down.
+    pub fn show(&mut self, graphics: &Graphics, monitor: &Monitor, spot: Option<ToolbarSpot>) -> Result<()> {
         let scale = monitor.scale;
         let (width, height) = ((self.size.0 * scale).ceil() as i32, (self.size.1 * scale).ceil() as i32);
-        let work = monitor.work;
-        let x = (work.left + work.right) / 2 - width / 2;
-        let y = work.top + (12.0 * scale) as i32;
+        let frame = ToolbarSpot::frame(width as f32, height as f32, rect(monitor.work), spot, 12.0 * scale);
+        let (x, y) = (frame.x.round() as i32, frame.y.round() as i32);
         unsafe {
             SetWindowPos(self.hwnd, Some(HWND_TOPMOST), x, y, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW)?;
         }
@@ -79,6 +82,44 @@ impl Toolbar {
             self.tips.place(&names, scale);
         }
         Ok(())
+    }
+
+    /// A press on the background, not a button, the way Epic Pen's toolbar moves: the toolbar follows
+    /// the pointer until let go.
+    pub fn begin_drag(&mut self) {
+        let mut pointer = POINT::default();
+        let mut window = RECT::default();
+        unsafe {
+            if GetCursorPos(&mut pointer).is_err() || GetWindowRect(self.hwnd, &mut window).is_err() {
+                return;
+            }
+            SetCapture(self.hwnd);
+        }
+        self.dragging = Some((pointer, window));
+    }
+
+    /// True while a drag is on, with the toolbar moved to follow the pointer.
+    pub fn drag(&self) -> bool {
+        let Some((start, window)) = self.dragging else { return false };
+        let mut pointer = POINT::default();
+        unsafe {
+            if GetCursorPos(&mut pointer).is_ok() {
+                let (x, y) = (window.left + pointer.x - start.x, window.top + pointer.y - start.y);
+                let _ = SetWindowPos(self.hwnd, Some(HWND_TOPMOST), x, y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
+            }
+        }
+        true
+    }
+
+    /// Let go: where the toolbar was dropped, in physical pixels; None when no drag was on.
+    pub fn end_drag(&mut self) -> Option<Rect> {
+        self.dragging.take()?;
+        let mut window = RECT::default();
+        unsafe {
+            let _ = ReleaseCapture();
+            GetWindowRect(self.hwnd, &mut window).ok()?;
+        }
+        Some(rect(window))
     }
 
     /// The colour button on screen, in physical pixels, for the colour picker to hang from.
@@ -155,6 +196,11 @@ impl Toolbar {
             Ok(())
         })
     }
+}
+
+/// A window rectangle as the core's.
+pub fn rect(r: RECT) -> Rect {
+    Rect { x: r.left as f32, y: r.top as f32, width: (r.right - r.left) as f32, height: (r.bottom - r.top) as f32 }
 }
 
 /// Every button's place, in device-independent pixels, and the toolbar's size: the marking tools,

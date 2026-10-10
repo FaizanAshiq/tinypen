@@ -39,3 +39,35 @@ public struct Screen: Equatable, Sendable {
         return drawing || effect != nil || hasMarks ? .escape : .none
     }
 }
+
+/// Where the toolbar sits: its centre as a fraction of a display's usable area, across from the left
+/// and down from the top, so a spot picked on one display means the same place on another.
+public struct ToolbarSpot: Equatable, Sendable, Codable {
+    public var x: Double
+    public var y: Double
+
+    public init(x: Double, y: Double) {
+        self.x = min(max(x, 0), 1)
+        self.y = min(max(y, 0), 1)
+    }
+
+    /// The spot of a toolbar dropped at `frame`, in AppKit's coordinates, up from the bottom.
+    public init(frame: CGRect, in visible: CGRect) {
+        self.init(x: (frame.midX - visible.minX) / visible.width, y: (visible.maxY - frame.midY) / visible.height)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(x: try container.decode(Double.self, forKey: .x), y: try container.decode(Double.self, forKey: .y))
+    }
+
+    /// The toolbar's frame on a display, wholly inside its usable area; without a spot, at the top in
+    /// the middle, 12 points down.
+    public static func frame(size: CGSize, in visible: CGRect, spot: ToolbarSpot?) -> CGRect {
+        let centre = spot.map { CGPoint(x: visible.minX + $0.x * visible.width, y: visible.maxY - $0.y * visible.height) }
+            ?? CGPoint(x: visible.midX, y: visible.maxY - 12 - size.height / 2)
+        let x = min(max(centre.x - size.width / 2, visible.minX), visible.maxX - size.width)
+        let y = min(max(centre.y - size.height / 2, visible.minY), visible.maxY - size.height)
+        return CGRect(origin: CGPoint(x: x, y: y), size: size)
+    }
+}

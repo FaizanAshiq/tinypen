@@ -140,6 +140,8 @@ public struct Preferences: Equatable, Sendable, Codable {
     public var showMenuBarIcon: Bool
     /// Custom colours picked lately, newest first, shown beside the six.
     public var recentColors: [String] = []
+    /// Where the toolbar was dragged to; nil for the top in the middle.
+    public var toolbarSpot: ToolbarSpot?
 
     public static let defaults = Preferences(hotkeys: .defaults, colorHex: Palette.colors[0], size: 1, tool: .pen,
                                              showMenuBarIcon: true)
@@ -188,7 +190,8 @@ public struct Preferences: Equatable, Sendable, Codable {
         showMenuBarIcon = (try? container.decodeIfPresent(Bool.self, forKey: .showMenuBarIcon)) ?? defaults.showMenuBarIcon
         let recent = (try? container.decodeIfPresent([String].self, forKey: .recentColors)) ?? []
         recentColors = Array(recent.compactMap(Palette.hex(typed:)).prefix(Palette.recentCount))
+        toolbarSpot = try? container.decodeIfPresent(ToolbarSpot.self, forKey: .toolbarSpot)
     }
 
-    private enum CodingKeys: String, CodingKey { case hotkeys, colorHex, size, tool, showMenuBarIcon, recentColors }
+    private enum CodingKeys: String, CodingKey { case hotkeys, colorHex, size, tool, showMenuBarIcon, recentColors, toolbarSpot }
 }

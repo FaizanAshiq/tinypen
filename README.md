@@ -8,12 +8,16 @@ nothing to sign up for and nothing collected.
 | --- | --- | --- |
 | Start drawing | ⌥⇧D | Ctrl+Shift+D |
 | Stop drawing, marks kept | the same hotkey | the same hotkey |
-| Erase everything | Esc | Esc |
-| Stop drawing | Esc again | Esc again |
+| Erase what is drawn | Esc | Esc |
+| Switch every tool off | Esc, with nothing drawn | Esc, with nothing drawn |
 
 While drawing: P pen, H highlighter, A arrow, R box, L laser, S spotlight, Z zoom, W board,
-1 to 6 colours, [ and ] size, undo with Command Z or Ctrl+Z, Delete clears. The toolbar's
-colour button also takes any colour or a hex code, and keeps the last three you picked.
+1 to 6 colours, [ and ] size (of the spotlight or the lens while one is on), undo with Command Z
+or Ctrl+Z, Delete clears. The toolbar's colour button also takes any colour or a hex code, and
+keeps the last three you picked. Drag the toolbar by its edge to move it; it stays where you drop it.
+
+Only the pen, highlighter, arrow and box take the mouse. The laser, spotlight and zoom let every
+click through to the app underneath, whether switched on by their hotkey or from the toolbar.
 
 ## Building
 

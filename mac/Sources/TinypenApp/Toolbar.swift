@@ -1,8 +1,9 @@
 import AppKit
 import TinypenCore
 
-/// Drawing mode's floating toolbar, at the top of the display being drawn on. It never takes the
-/// keys from the drawing layer, so the tool keys keep working while it shows.
+/// Drawing mode's floating toolbar, on the display being drawn on: at the top in the middle until it
+/// is dragged by its background, then wherever it was dropped. It never takes the keys from the
+/// drawing layer, so the tool keys keep working while it shows.
 @MainActor
 final class Toolbar: NSObject, NSPopoverDelegate {
     private unowned let session: Session
@@ -33,7 +34,16 @@ final class Toolbar: NSObject, NSPopoverDelegate {
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
         panel.animationBehavior = .none
+        panel.onDrop = { [unowned self] in dropped() }
         build()
+    }
+
+    /// Kept wholly on the display it was dropped on, and remembered for next time.
+    private func dropped() {
+        guard let visible = panel.screen?.visibleFrame else { return }
+        let spot = ToolbarSpot(frame: panel.frame, in: visible)
+        panel.setFrameOrigin(ToolbarSpot.frame(size: panel.frame.size, in: visible, spot: spot).origin)
+        session.toolbarMoved(to: spot)
     }
 
     private func build() {
@@ -101,12 +111,11 @@ final class Toolbar: NSObject, NSPopoverDelegate {
         return stack
     }
 
-    /// Centred at the top of the display, just under the menu bar.
+    /// Where it was last dropped, kept wholly on this display; at first centred just under the menu bar.
     func show(over screenFrame: NSRect) {
         let screen = NSScreen.screens.first { $0.frame == screenFrame } ?? NSScreen.main
         let visible = screen?.visibleFrame ?? screenFrame
-        let size = panel.frame.size
-        panel.setFrameOrigin(NSPoint(x: visible.midX - size.width / 2, y: visible.maxY - size.height - 12))
+        panel.setFrameOrigin(ToolbarSpot.frame(size: panel.frame.size, in: visible, spot: session.preferences.toolbarSpot).origin)
         refresh()
         panel.orderFrontRegardless()
     }
@@ -190,9 +199,37 @@ final class Toolbar: NSObject, NSPopoverDelegate {
 /// The toolbar's panel, which says when a click lands on it before the button under it acts.
 final class ToolbarPanel: NSPanel {
     var onMouseDown: ((NSEvent) -> Void)?
+    /// Let go after a drag by its background.
+    var onDrop: (() -> Void)?
+    /// Where the pointer and the panel were when a drag by the background began.
+    private var dragStart: (pointer: NSPoint, origin: NSPoint)?
 
+    /// A drag on any part that is not a button moves the panel, the way Epic Pen's toolbar moves. It
+    /// is moved here rather than by macOS, whose own window drag snapped it to the left edge when let go.
     override func sendEvent(_ event: NSEvent) {
-        if event.type == .leftMouseDown { onMouseDown?(event) }
+        switch event.type {
+        case .leftMouseDown:
+            onMouseDown?(event)
+            if !(contentView?.hitTest(event.locationInWindow) is NSControl) {
+                dragStart = (NSEvent.mouseLocation, frame.origin)
+                return
+            }
+        case .leftMouseDragged:
+            if let dragStart {
+                let pointer = NSEvent.mouseLocation
+                setFrameOrigin(NSPoint(x: dragStart.origin.x + pointer.x - dragStart.pointer.x,
+                                       y: dragStart.origin.y + pointer.y - dragStart.pointer.y))
+                return
+            }
+        case .leftMouseUp:
+            if dragStart != nil {
+                dragStart = nil
+                onDrop?()
+                return
+            }
+        default:
+            break
+        }
         super.sendEvent(event)
     }
 }

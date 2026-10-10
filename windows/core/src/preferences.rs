@@ -1,3 +1,4 @@
+use crate::screen::ToolbarSpot;
 use crate::tool::{Palette, Tool, WIDTHS};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -115,6 +116,8 @@ pub struct Preferences {
     pub show_tray_icon: bool,
     /// Custom colours picked lately, newest first, shown beside the six.
     pub recent_colors: Vec<String>,
+    /// Where the toolbar was dragged to; None for the top in the middle.
+    pub toolbar_spot: Option<ToolbarSpot>,
 }
 
 impl Default for Preferences {
@@ -126,6 +129,7 @@ impl Default for Preferences {
             tool: Tool::Pen,
             show_tray_icon: true,
             recent_colors: Vec::new(),
+            toolbar_spot: None,
         }
     }
 }
@@ -184,7 +188,8 @@ impl Preferences {
             }
             _ => Vec::new(),
         };
-        Preferences { hotkeys, color, size, tool, show_tray_icon, recent_colors }
+        let toolbar_spot = object.get("toolbarSpot").and_then(|value| serde_json::from_value::<ToolbarSpot>(value.clone()).ok());
+        Preferences { hotkeys, color, size, tool, show_tray_icon, recent_colors, toolbar_spot }
     }
 
     /// Written to a file beside it first, then moved over, so a crash mid write never leaves half a file.
@@ -203,6 +208,9 @@ impl Preferences {
         object.insert("tool".into(), serde_json::to_value(self.tool).unwrap_or(Value::Null));
         object.insert("showTrayIcon".into(), Value::Bool(self.show_tray_icon));
         object.insert("recentColors".into(), Value::from(self.recent_colors.clone()));
+        if let Some(spot) = self.toolbar_spot {
+            object.insert("toolbarSpot".into(), serde_json::to_value(spot).unwrap_or(Value::Null));
+        }
         let text = serde_json::to_string_pretty(&Value::Object(object)).unwrap_or_default();
         let temporary = path.with_extension("json.new");
         std::fs::write(&temporary, text)?;
@@ -278,6 +286,18 @@ mod tests {
         assert_eq!(Preferences::load(&path).recent_colors, vec!["#00FF00", "#000001", "#000002"]);
         std::fs::write(&path, r#"{"size": 1}"#).unwrap();
         assert!(Preferences::load(&path).recent_colors.is_empty());
+    }
+
+    #[test]
+    fn a_toolbar_spot_is_saved_and_an_older_file_has_none() {
+        let path = file("spot");
+        let preferences = Preferences { toolbar_spot: Some(ToolbarSpot::new(0.25, 0.75)), ..Preferences::default() };
+        preferences.save(&path).unwrap();
+        assert_eq!(Preferences::load(&path), preferences);
+        std::fs::write(&path, r#"{"size": 1, "toolbarSpot": {"x": 7, "y": -2}}"#).unwrap();
+        assert_eq!(Preferences::load(&path).toolbar_spot, Some(ToolbarSpot::new(1.0, 0.0)));
+        std::fs::write(&path, r#"{"size": 1}"#).unwrap();
+        assert_eq!(Preferences::load(&path).toolbar_spot, None);
     }
 
     #[test]

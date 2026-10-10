@@ -12,7 +12,7 @@ use crate::tray::{self, Entry, Tray, TRAY_MESSAGE};
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::time::{Instant, SystemTime};
-use tinypen_core::{HeldKeys, HotKeyAction, Lens, Palette, Preferences, Screen, Spotlight, Tool, WIDTHS};
+use tinypen_core::{HeldKeys, HotKeyAction, Lens, Palette, Preferences, Screen, Spotlight, Tool, ToolbarSpot, WIDTHS};
 use windows::core::{w, Result, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HGLOBAL, HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::System::DataExchange::{CloseClipboard, GetClipboardData, OpenClipboard};
@@ -301,7 +301,7 @@ impl App {
                     let _ = SetFocus(Some(overlay.hwnd));
                 }
             }
-            let _ = self.toolbar.show(&self.graphics, &monitor);
+            let _ = self.toolbar.show(&self.graphics, &monitor, self.preferences.toolbar_spot);
             self.render_toolbar();
         }
     }
@@ -518,6 +518,20 @@ impl App {
             _ => return,
         }
         let _ = self.picker.render(&self.graphics, &self.preferences.color);
+    }
+
+    /// Let go after a drag: kept wholly on the monitor it was dropped on, and remembered for next time.
+    fn toolbar_dropped(&mut self) {
+        let Some(frame) = self.toolbar.end_drag() else { return };
+        let (cx, cy) = ((frame.x + frame.width / 2.0) as i32, (frame.y + frame.height / 2.0) as i32);
+        let Some(monitor) = self.overlays.iter().map(|overlay| overlay.monitor).find(|monitor| {
+            cx >= monitor.rect.left && cx < monitor.rect.right && cy >= monitor.rect.top && cy < monitor.rect.bottom
+        }) else { return };
+        let spot = ToolbarSpot::of(frame, crate::toolbar::rect(monitor.work));
+        self.preferences.toolbar_spot = Some(spot);
+        self.save();
+        let _ = self.toolbar.show(&self.graphics, &monitor, Some(spot));
+        self.render_toolbar();
     }
 
     fn toolbar_button(&mut self, button: Option<Button>) {
@@ -749,13 +763,17 @@ impl App {
                 if hit != Some(Button::Color) {
                     self.close_picker();
                 }
-                self.toolbar_button(hit);
+                match hit {
+                    Some(_) => self.toolbar_button(hit),
+                    None => self.toolbar.begin_drag(),
+                }
             }
             WM_MOUSEMOVE => {
-                if self.toolbar.hover(x, y) {
+                if !self.toolbar.drag() && self.toolbar.hover(x, y) {
                     self.render_toolbar();
                 }
             }
+            WM_LBUTTONUP | WM_CAPTURECHANGED => self.toolbar_dropped(),
             WM_MOUSEACTIVATE => return Some(LRESULT(MA_NOACTIVATE as isize)),
             _ => return None,
         }

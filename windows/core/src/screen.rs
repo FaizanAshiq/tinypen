@@ -1,7 +1,9 @@
 //! What Tinypen shows and what follows from it, the same as the Mac app: which clicks the layer
-//! takes and which keys Tinypen holds.
+//! takes, which keys Tinypen holds, and where the toolbar sits.
 
+use crate::geometry::Rect;
 use crate::tool::Tool;
+use serde::{Deserialize, Serialize};
 
 /// Which keys Tinypen holds while it shows something, so they reach it whichever app is in front.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,6 +46,53 @@ impl Screen {
     }
 }
 
+/// Where the toolbar sits: its centre as a fraction of a monitor's work area, across from the left
+/// and down from the top, so a spot picked on one monitor means the same place on another.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(from = "RawSpot")]
+pub struct ToolbarSpot {
+    pub x: f32,
+    pub y: f32,
+}
+
+#[derive(Deserialize)]
+struct RawSpot {
+    x: f32,
+    y: f32,
+}
+
+impl From<RawSpot> for ToolbarSpot {
+    fn from(raw: RawSpot) -> Self {
+        ToolbarSpot::new(raw.x, raw.y)
+    }
+}
+
+impl ToolbarSpot {
+    pub fn new(x: f32, y: f32) -> ToolbarSpot {
+        ToolbarSpot { x: x.clamp(0.0, 1.0), y: y.clamp(0.0, 1.0) }
+    }
+
+    /// The spot of a toolbar dropped at `frame` in `work`, y counting down.
+    pub fn of(frame: Rect, work: Rect) -> ToolbarSpot {
+        ToolbarSpot::new(
+            (frame.x + frame.width / 2.0 - work.x) / work.width,
+            (frame.y + frame.height / 2.0 - work.y) / work.height,
+        )
+    }
+
+    /// The toolbar's frame in `work`, wholly inside it; without a spot, at the top in the middle,
+    /// `gap` down.
+    pub fn frame(width: f32, height: f32, work: Rect, spot: Option<ToolbarSpot>, gap: f32) -> Rect {
+        let (cx, cy) = match spot {
+            Some(spot) => (work.x + spot.x * work.width, work.y + spot.y * work.height),
+            None => (work.x + work.width / 2.0, work.y + gap + height / 2.0),
+        };
+        let x = (cx - width / 2.0).min(work.x + work.width - width).max(work.x);
+        let y = (cy - height / 2.0).min(work.y + work.height - height).max(work.y);
+        Rect { x, y, width, height }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -79,5 +128,26 @@ mod tests {
     fn marks_left_on_screen_hold_esc_and_nothing_shown_holds_nothing() {
         assert_eq!(Screen { has_marks: true, ..Screen::default() }.held_keys(), HeldKeys::Escape);
         assert_eq!(Screen::default().held_keys(), HeldKeys::None);
+    }
+
+    const WORK: Rect = Rect { x: 0.0, y: 0.0, width: 1000.0, height: 800.0 };
+
+    #[test]
+    fn without_a_spot_it_sits_at_the_top_in_the_middle() {
+        assert_eq!(ToolbarSpot::frame(600.0, 40.0, WORK, None, 12.0), Rect { x: 200.0, y: 12.0, width: 600.0, height: 40.0 });
+    }
+
+    #[test]
+    fn a_spot_comes_back_where_it_was_dropped() {
+        let dropped = Rect { x: 300.0, y: 660.0, width: 600.0, height: 40.0 };
+        let spot = ToolbarSpot::of(dropped, WORK);
+        assert_eq!(ToolbarSpot::frame(600.0, 40.0, WORK, Some(spot), 12.0), dropped);
+    }
+
+    #[test]
+    fn it_stays_wholly_on_the_monitor_even_on_a_smaller_one() {
+        let small = Rect { x: 1000.0, y: 0.0, width: 700.0, height: 500.0 };
+        let frame = ToolbarSpot::frame(600.0, 40.0, small, Some(ToolbarSpot::new(0.95, 0.99)), 12.0);
+        assert!(frame.x >= 1000.0 && frame.x + frame.width <= 1700.0 && frame.y >= 0.0 && frame.y + frame.height <= 500.0);
     }
 }

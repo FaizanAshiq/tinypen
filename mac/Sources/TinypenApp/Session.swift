@@ -215,6 +215,11 @@ final class Session {
         takeKeys()
     }
 
+    /// Where the toolbar was dragged to, to put it there next time.
+    func toolbarMoved(to spot: ToolbarSpot) {
+        preferences.toolbarSpot = spot
+    }
+
     func pickSize(_ size: Int) {
         preferences.size = min(max(size, 0), Sizes.widths.count - 1)
     }
