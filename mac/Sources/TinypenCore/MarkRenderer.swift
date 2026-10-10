@@ -16,10 +16,11 @@ public enum MarkRenderer {
             context.strokePath()
         case .highlight:
             // Drawn opaque inside a layer that is faded as a whole, so the stroke never darkens
-            // where it crosses itself.
+            // where it crosses itself. Round ends: flat ones looked chopped off, and left dark
+            // wedges where a stroke hooked back near its start or end.
             context.setAlpha(0.4)
             context.beginTransparencyLayer(auxiliaryInfo: nil)
-            context.setLineCap(.butt)
+            context.setLineCap(.round)
             context.setLineWidth(mark.width)
             context.setStrokeColor(color)
             context.addPath(mark.path)

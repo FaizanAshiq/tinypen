@@ -166,7 +166,9 @@ impl Graphics {
                         ..Default::default()
                     };
                     context.PushLayer(&parameters, None);
-                    context.DrawGeometry(&self.path(points, true, false)?, &brush, mark.width, &self.flat);
+                    // Round ends, as on the Mac: flat ones looked chopped off and left dark wedges
+                    // where a stroke hooked back near its start or end.
+                    context.DrawGeometry(&self.path(points, true, false)?, &brush, mark.width, &self.round);
                     context.PopLayer();
                 }
                 MarkKind::Arrow { from, to } => {

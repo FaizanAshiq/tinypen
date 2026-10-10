@@ -39,6 +39,22 @@ struct RenderTests {
         #expect(zip(once, crossing).allSatisfy { abs($0 - $1) <= 2 })
     }
 
+    /// A hand often starts a stroke with a little hook back. Reported: flat ends left dark wedges
+    /// there, and the ends looked chopped off.
+    @Test func aHighlighterCoversEverywhereThePointerWentEndsIncluded() {
+        let forward: [CGPoint] = (0...12).map { CGPoint(x: 40 + CGFloat($0), y: 100) }
+        let back: [CGPoint] = (1...4).map { CGPoint(x: 52 - CGFloat($0), y: 100 + CGFloat($0) / 2) }
+        let on: [CGPoint] = (1...120).map { CGPoint(x: 48 + CGFloat($0), y: (102 + CGFloat($0) / 10).rounded()) }
+        let points = forward + back + on
+        let context = render([Mark(kind: .highlight(points), colorHex: "#34C759", width: 48)])
+        let inside = pixel(context, 120, 108)
+        for x in 20...70 {
+            for y in 80...120 where points.contains(where: { hypot($0.x - CGFloat(x), $0.y - CGFloat(y)) < 16 }) {
+                #expect(zip(pixel(context, x, y), inside).allSatisfy { abs($0 - $1) <= 2 }, "\(x), \(y)")
+            }
+        }
+    }
+
     @Test func aClickWithThePenLeavesADot() {
         let context = render([Mark(kind: .stroke([CGPoint(x: 100, y: 100)]), colorHex: "#FF3B30", width: 10)])
         #expect(pixel(context, 100, 100) != white)
