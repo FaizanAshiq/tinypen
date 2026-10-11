@@ -230,7 +230,7 @@ final class Updater {
 
     /// Starts `script` with this process's id as `$1` and `arguments` after it, to carry on once
     /// Tinypen has quit.
-    private static func launch(_ script: String, _ arguments: [String]) -> Bool {
+    static func launch(_ script: String, _ arguments: [String]) -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", script, "sh", "\(ProcessInfo.processInfo.processIdentifier)"] + arguments
