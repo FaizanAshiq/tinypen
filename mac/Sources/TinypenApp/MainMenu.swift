@@ -4,14 +4,16 @@ import AppKit
 /// Command W and Command Q work as in any Mac app. Tinypen has no Dock icon, so this is the only time it shows.
 @MainActor
 enum MainMenu {
-    static func install(settings: Selector, target: AnyObject) {
+    static func install(settings: Selector, quit: Selector, target: AnyObject) {
         let bar = NSMenu()
         let app = NSMenu(title: "Tinypen")
         let settingsItem = NSMenuItem(title: "Settings...", action: settings, keyEquivalent: ",")
         settingsItem.target = target
         app.addItem(settingsItem)
         app.addItem(.separator())
-        app.addItem(NSMenuItem(title: "Quit Tinypen", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        let quitItem = NSMenuItem(title: "Quit Tinypen", action: quit, keyEquivalent: "q")
+        quitItem.target = target
+        app.addItem(quitItem)
         // A text field takes Command V and the rest from here. Found testing: with no Edit menu, a hex
         // code could not be pasted into the colour picker.
         let edit = NSMenu(title: "Edit")

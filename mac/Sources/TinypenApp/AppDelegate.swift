@@ -12,8 +12,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// The hotkeys as last registered, so other changes leave them be.
     private var registered: HotKeys?
     private var pendingSave: DispatchWorkItem?
+    /// Whether zoom could read the screen when Tinypen started. A Screen Recording grant made
+    /// later only takes once Tinypen restarts, which System Settings offers as Quit and Reopen.
+    private var couldReadScreenAtLaunch = false
+    private var suppressRelaunchOnQuit = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        couldReadScreenAtLaunch = ScreenAccess.isGranted
         let url = Preferences.defaultFileURL
         let firstLaunch = !FileManager.default.fileExists(atPath: url.path)
         let preferences = Preferences.load(from: url)
@@ -23,10 +28,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         session.onPreferences = { [weak self] preferences in self?.changed(preferences) }
         session.onChange = { [weak self] in self?.refreshStatusItem() }
         session.onZoomRefused = { [weak self] in self?.explainZoom() }
-        MainMenu.install(settings: #selector(showSettings(_:)), target: self)
+        MainMenu.install(settings: #selector(showSettings(_:)), quit: #selector(quit), target: self)
         refreshStatusItem()
         // First, as a copy opened from Downloads may move itself to Applications and start again there.
-        updater = Updater(isIdle: { [weak self] in self?.isIdle ?? false }, quit: { NSApp.terminate(nil) })
+        updater = Updater(isIdle: { [weak self] in self?.isIdle ?? false }, quit: { [weak self] in
+            // Not the relaunch a fresh Screen Recording grant asks for: the update starts the new copy.
+            self?.suppressRelaunchOnQuit = true
+            NSApp.terminate(nil)
+        })
         updater.start()
         // The first time, Settings shows the hotkeys, so the way in is never a guess.
         if firstLaunch {
@@ -70,6 +79,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Nothing shows and nothing would be lost, so an update can restart Tinypen.
     private var isIdle: Bool {
         session.isIdle && settings?.window?.isVisible != true
+    }
+
+    @objc private func quit() {
+        suppressRelaunchOnQuit = true
+        NSApp.terminate(nil)
+    }
+
+    /// Something other than our own Quit is ending this run, and the screen became readable while it
+    /// ran: that is System Settings' Quit and Reopen, whose reopen half left Tinypen gone (11 Oct,
+    /// after allowing zoom). Tinypen opens again once this copy is gone, as the hotkeys are held
+    /// exclusively until then, and only if macOS has not already opened it.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !suppressRelaunchOnQuit, ScreenAccess.isGranted, !couldReadScreenAtLaunch else { return .terminateNow }
+        _ = Updater.launch(#"while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; sleep 1; pgrep -qf "$2/Contents/MacOS/" || open "$2""#,
+                           [Bundle.main.bundlePath])
+        return .terminateNow
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -134,8 +159,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettings(_:)), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
-        let quit = NSMenuItem(title: "Quit Tinypen", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        menu.addItem(quit)
+        let quitItem = NSMenuItem(title: "Quit Tinypen", action: #selector(quit), keyEquivalent: "q")
+        quitItem.target = self
+        menu.addItem(quitItem)
     }
 
     private static func flags(_ modifiers: [ModifierKey]) -> NSEvent.ModifierFlags {
